@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -13,6 +13,8 @@ type Chapter = {
 };
 
 export default function Home() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [bookTitle, setBookTitle] = useState("");
@@ -61,9 +63,7 @@ export default function Home() {
     setExpandedCards({});
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-
+  const processFile = (file: File | undefined | null) => {
     if (!file) {
       setSelectedFile(null);
       setMessage("");
@@ -85,6 +85,29 @@ export default function Home() {
     setSelectedFile(file);
     setMessage("");
     resetAllState();
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    processFile(event.target.files?.[0]);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    processFile(e.dataTransfer.files?.[0]);
   };
 
   const fetchIdeaSourceTracing = async (
@@ -446,25 +469,61 @@ export default function Home() {
         </header>
 
         <section className="bg-white shadow-sm rounded-2xl p-8 border border-gray-100 mb-10">
-          <label className="block mb-3 text-sm font-medium text-gray-700">
-            选择电子书文件
-          </label>
-
+          {/* Hidden native file input */}
           <input
+            ref={fileInputRef}
             type="file"
             accept=".pdf,.epub,application/pdf"
             onChange={handleFileChange}
-            className="mb-4 w-full block text-sm text-gray-700 file:mr-4 file:rounded-lg file:border-0 file:bg-black file:px-4 file:py-2 file:text-white hover:file:bg-gray-800"
+            className="hidden"
           />
 
-          <div className="min-h-[48px] mb-4 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-600 border border-gray-100">
-            {selectedFile ? (
-              <span>
-                已选择：<strong>{selectedFile.name}</strong>
-              </span>
+          {/* Drop zone */}
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className={`mb-4 rounded-xl border-2 border-dashed px-6 py-10 text-center cursor-pointer transition-all duration-200 select-none ${
+              isDragging
+                ? "border-gray-500 bg-gray-50 scale-[1.01]"
+                : selectedFile
+                ? "border-gray-300 bg-gray-50 hover:border-gray-400"
+                : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            {isDragging ? (
+              <>
+                <p className="text-2xl mb-2">📂</p>
+                <p className="text-sm font-medium text-gray-600">松开即可上传</p>
+              </>
+            ) : selectedFile ? (
+              <>
+                <p className="text-2xl mb-2">📄</p>
+                <p className="text-sm font-semibold text-gray-800 break-all">
+                  {selectedFile.name}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">点击重新选择或拖入新文件</p>
+              </>
             ) : (
-              <span className="text-gray-400">尚未选择文件</span>
+              <>
+                <p className="text-2xl mb-2">📥</p>
+                <p className="text-sm font-medium text-gray-600 mb-1">
+                  点击选择文件，或将文件拖入此区域
+                </p>
+                <p className="text-xs text-gray-400">支持 EPUB / PDF</p>
+              </>
             )}
+          </div>
+
+          {/* Helper hints */}
+          <div className="mb-5 space-y-1">
+            <p className="text-xs text-gray-400">
+              ✦ 推荐使用 EPUB 文件，可获得完整六项结构化分析
+            </p>
+            <p className="text-xs text-gray-400">
+              ✦ 较大的 PDF 可能上传失败，建议优先使用 EPUB 或压缩后的 PDF
+            </p>
           </div>
 
           <button
