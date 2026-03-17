@@ -331,16 +331,41 @@ export default function Home() {
 
     try {
       setIsLoading(true);
-      setMessage("正在上传并解析章节...");
+      setMessage("正在上传文件...");
       resetAllState();
 
-      const formData = new FormData();
-      formData.append("file", selectedFile);
+      let res: Response;
 
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        body: formData,
-      });
+      try {
+        // Try Vercel Blob client upload (production)
+        const { upload } = await import("@vercel/blob/client");
+        const blob = await upload(selectedFile.name, selectedFile, {
+          access: "public",
+          handleUploadUrl: "/api/upload",
+        });
+
+        setMessage("上传成功，正在解析章节...");
+
+        res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fileUrl: blob.url,
+            filename: selectedFile.name,
+          }),
+        });
+      } catch {
+        // Blob not available (local dev) — fall back to direct FormData
+        setMessage("正在上传并解析章节...");
+
+        const formData = new FormData();
+        formData.append("file", selectedFile);
+
+        res = await fetch("/api/analyze", {
+          method: "POST",
+          body: formData,
+        });
+      }
 
       const data = await res.json();
 
@@ -360,7 +385,6 @@ export default function Home() {
       setChapters(chapters);
       setIsLiteMode(liteMode);
 
-      // PDF Lite mode: only fetch reading guide, skip the full skills chain
       fetchReadingGuide(title, bookSummary, chapters, !liteMode);
     } catch (error) {
       console.error(error);

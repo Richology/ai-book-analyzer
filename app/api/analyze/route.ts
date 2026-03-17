@@ -12,19 +12,54 @@ type ChapterItem = {
 
 export async function POST(request: Request) {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
+    const contentType = request.headers.get("content-type") || "";
 
-    if (!file) {
-      return NextResponse.json(
-        { success: false, error: "没有收到文件" },
-        { status: 400 }
-      );
+    let filename: string;
+    let buffer: Buffer;
+
+    if (contentType.includes("application/json")) {
+      // URL-based flow (Vercel Blob / production)
+      const body = await request.json();
+      const { fileUrl, filename: fn } = body as {
+        fileUrl: string;
+        filename: string;
+      };
+
+      if (!fileUrl || !fn) {
+        return NextResponse.json(
+          { success: false, error: "缺少 fileUrl 或 filename" },
+          { status: 400 }
+        );
+      }
+
+      filename = fn;
+
+      const fileRes = await fetch(fileUrl);
+      if (!fileRes.ok) {
+        return NextResponse.json(
+          { success: false, error: "无法下载文件，请重新上传" },
+          { status: 400 }
+        );
+      }
+      buffer = Buffer.from(await fileRes.arrayBuffer());
+    } else {
+      // Direct FormData flow (local dev)
+      const formData = await request.formData();
+      const file = formData.get("file") as File | null;
+
+      if (!file) {
+        return NextResponse.json(
+          { success: false, error: "没有收到文件" },
+          { status: 400 }
+        );
+      }
+
+      filename = file.name;
+      buffer = Buffer.from(await file.arrayBuffer());
     }
 
-    const isEpub = file.name.toLowerCase().endsWith(".epub");
-    const isPdf =
-      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isEpub = filename.toLowerCase().endsWith(".epub");
+    const isPdf = filename.toLowerCase().endsWith(".pdf");
 
     if (!isEpub && !isPdf) {
       return NextResponse.json(
@@ -33,22 +68,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    const uploadDir = process.env.VERCEL
-      ? "/tmp/uploads"
-      : path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const filePath = path.join(uploadDir, file.name);
-    fs.writeFileSync(filePath, buffer);
-
-    console.log("收到文件:", file.name);
+    console.log("收到文件:", filename);
 
     if (isEpub) {
+      const uploadDir = process.env.VERCEL
+        ? "/tmp/uploads"
+        : path.join(process.cwd(), "uploads");
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+
+      const filePath = path.join(uploadDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
       const epubData = await parseEpub(filePath);
 
       const chapterContextForSummary = epubData.chapters.map((c, index) => ({
@@ -57,27 +89,30 @@ export async function POST(request: Request) {
         summary: c.text.slice(0, 800),
       }));
 
-      const bookSummary = await generateBookSummary(epubData.title, chapterContextForSummary);
+      const bookSummary = await generateBookSummary(
+        epubData.title,
+        chapterContextForSummary
+      );
 
       return NextResponse.json({
         success: true,
         type: "epub",
         mode: "full",
-        filename: file.name,
+        filename,
         title: epubData.title,
         bookSummary,
         chapters: epubData.chapters,
       });
     }
 
-    const pdfTitle = file.name.replace(/\.pdf$/i, "");
+    const pdfTitle = filename.replace(/\.pdf$/i, "");
     const pdfChapters = await parsePdf(buffer);
 
     return NextResponse.json({
       success: true,
       type: "pdf",
       mode: "lite",
-      filename: file.name,
+      filename,
       title: pdfTitle,
       bookSummary: "",
       chapters: pdfChapters,
@@ -152,7 +187,6 @@ function getChapterText(epub: Epub, chapterId: string): Promise<string> {
 
 async function parsePdf(buffer: Buffer): Promise<ChapterItem[]> {
   try {
-    // Import via the core lib path to avoid pdf-parse test-file side-effects
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfParse = require("pdf-parse/lib/pdf-parse") as (
       buf: Buffer
