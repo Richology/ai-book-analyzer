@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         type: "epub",
+        mode: "full",
         filename: file.name,
         title: epubData.title,
         bookSummary,
@@ -69,13 +70,17 @@ export async function POST(request: Request) {
       });
     }
 
+    const pdfTitle = file.name.replace(/\.pdf$/i, "");
+    const pdfChapters = await parsePdf(buffer);
+
     return NextResponse.json({
       success: true,
       type: "pdf",
+      mode: "lite",
       filename: file.name,
-      title: "PDF 文件",
-      bookSummary: "当前版本仅完成 PDF 上传，尚未生成全书摘要。",
-      chapters: [],
+      title: pdfTitle,
+      bookSummary: "",
+      chapters: pdfChapters,
     });
   } catch (error) {
     console.error("分析失败:", error);
@@ -143,6 +148,43 @@ function getChapterText(epub: Epub, chapterId: string): Promise<string> {
       resolve(text || "");
     });
   });
+}
+
+async function parsePdf(buffer: Buffer): Promise<ChapterItem[]> {
+  try {
+    // Import via the core lib path to avoid pdf-parse test-file side-effects
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require("pdf-parse/lib/pdf-parse") as (
+      buf: Buffer
+    ) => Promise<{ text: string }>;
+
+    const data = await pdfParse(buffer);
+    const fullText = (data.text || "").trim();
+
+    if (!fullText) return [];
+
+    const CHUNK_SIZE = 3000;
+    const chunks: ChapterItem[] = [];
+    const totalChunks = Math.min(8, Math.ceil(fullText.length / CHUNK_SIZE));
+
+    for (let i = 0; i < totalChunks; i++) {
+      const text = fullText
+        .slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE)
+        .trim();
+      if (text.length > 50) {
+        chunks.push({
+          id: `pdf-p${i + 1}`,
+          title: `第 ${i + 1} 部分`,
+          text,
+        });
+      }
+    }
+
+    return chunks;
+  } catch (err) {
+    console.error("PDF 文本提取失败:", err);
+    return [];
+  }
 }
 
 function cleanHtmlText(html: string): string {

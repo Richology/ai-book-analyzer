@@ -24,12 +24,16 @@ export default function Home() {
   const [bookSummary, setBookSummary] = useState("");
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingBookSummary, setIsLoadingBookSummary] = useState(false);
   const [isLoadingReadingGuide, setIsLoadingReadingGuide] = useState(false);
   const [isLoadingViewMap, setIsLoadingViewMap] = useState(false);
   const [isLoadingActionExtraction, setIsLoadingActionExtraction] = useState(false);
   const [isLoadingViewValidation, setIsLoadingViewValidation] = useState(false);
   const [isLoadingIdeaSourceTracing, setIsLoadingIdeaSourceTracing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isLiteMode, setIsLiteMode] = useState(false);
+  const [isLiteUnlocked, setIsLiteUnlocked] = useState(false);
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
 
   const toggleCard = (key: string) => {
@@ -39,6 +43,7 @@ export default function Home() {
   const resetAllState = () => {
     setBookTitle("");
     setBookSummary("");
+    setIsLoadingBookSummary(false);
     setReadingGuide("");
     setIsLoadingReadingGuide(false);
     setViewMap("");
@@ -50,6 +55,9 @@ export default function Home() {
     setIdeaSourceTracing("");
     setIsLoadingIdeaSourceTracing(false);
     setChapters([]);
+    setIsLiteMode(false);
+    setIsLiteUnlocked(false);
+    setIsPaywallModalOpen(false);
     setExpandedCards({});
   };
 
@@ -193,7 +201,8 @@ export default function Home() {
   const fetchReadingGuide = async (
     title: string,
     bookSummary: string,
-    chapters: Chapter[]
+    chapters: Chapter[],
+    continueChain = true
   ) => {
     try {
       setIsLoadingReadingGuide(true);
@@ -213,8 +222,42 @@ export default function Home() {
       console.error("阅读指南生成失败:", error);
     } finally {
       setIsLoadingReadingGuide(false);
-      fetchViewMap(title, bookSummary, chapters);
+      if (continueChain) {
+        fetchViewMap(title, bookSummary, chapters);
+      }
     }
+  };
+
+  const handleUnlock = async () => {
+    setIsPaywallModalOpen(false);
+    setIsLiteUnlocked(true);
+
+    // Capture current state values for the async chain
+    const title = bookTitle;
+    const currentChapters = chapters;
+
+    // Step 1: generate a real book summary from extracted PDF text
+    let realSummary = "";
+    try {
+      setIsLoadingBookSummary(true);
+      const res = await fetch("/api/skills/book-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, chapters: currentChapters }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        realSummary = data.bookSummary || "";
+        setBookSummary(realSummary);
+      }
+    } catch (err) {
+      console.error("全书摘要生成失败:", err);
+    } finally {
+      setIsLoadingBookSummary(false);
+    }
+
+    // Step 2: kick off the full skill chain with the real summary
+    fetchViewMap(title, realSummary, currentChapters);
   };
 
   const handleExport = async () => {
@@ -286,13 +329,16 @@ export default function Home() {
       const title = data.title || "";
       const bookSummary = data.bookSummary || "";
       const chapters = data.chapters || [];
+      const liteMode = data.mode === "lite";
 
       setMessage(`文件解析成功：${data.filename}`);
       setBookTitle(title);
       setBookSummary(bookSummary);
       setChapters(chapters);
+      setIsLiteMode(liteMode);
 
-      fetchReadingGuide(title, bookSummary, chapters);
+      // PDF Lite mode: only fetch reading guide, skip the full skills chain
+      fetchReadingGuide(title, bookSummary, chapters, !liteMode);
     } catch (error) {
       console.error(error);
       setMessage("请求失败，请稍后重试。");
@@ -377,7 +423,7 @@ export default function Home() {
   ].some((k) => expandedCards[k]);
 
   const beforeReadingCards = [
-    renderCard("bookSummary", "全书摘要", bookSummary, false, "", beforeReadingExpanded),
+    renderCard("bookSummary", "全书摘要", bookSummary, isLoadingBookSummary, "正在生成全书摘要...", beforeReadingExpanded),
     renderCard("readingGuide", "阅读指南", readingGuide, isLoadingReadingGuide, "正在生成阅读指南...", beforeReadingExpanded),
     renderCard("viewMap", "观点地图", viewMap, isLoadingViewMap, "正在生成观点地图...", beforeReadingExpanded),
   ].filter(Boolean);
@@ -392,8 +438,9 @@ export default function Home() {
     <main className="min-h-screen bg-gray-50 px-6 py-10">
       <div className="mx-auto max-w-5xl">
         <header className="mb-10 text-center">
-          <h1 className="text-4xl font-bold mb-4">AI Book Analyzer</h1>
-          <p className="text-gray-500 max-w-xl mx-auto leading-7 text-sm">
+          <h1 className="text-4xl font-bold tracking-tight mb-2">书跃 · BookLeap</h1>
+          <p className="text-lg text-gray-500 mb-4">从好书中完成认知跃迁</p>
+          <p className="text-gray-400 max-w-xl mx-auto leading-7 text-sm">
             上传电子书，将书籍转化为结构化的知识卡片，提升知识获取的效率和质量
           </p>
         </header>
@@ -437,17 +484,66 @@ export default function Home() {
 
         {bookTitle && (
           <>
+            {/* Book title bar */}
             <div className="flex items-center justify-between gap-4 mb-8">
               <h2 className="text-xl font-semibold text-gray-900 truncate">{bookTitle}</h2>
-              <button
-                onClick={handleExport}
-                disabled={isExporting}
-                className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
-              >
-                {isExporting ? "导出中..." : "导出 Obsidian 知识包"}
-              </button>
+              {(!isLiteMode || isLiteUnlocked) && (
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  {isExporting ? "导出中..." : "导出 Obsidian 知识包"}
+                </button>
+              )}
             </div>
 
+            {/* PDF Lite mode info banner (locked) */}
+            {isLiteMode && !isLiteUnlocked && (
+              <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+                <span className="mt-0.5 text-amber-500 text-base shrink-0">ℹ</span>
+                <p className="text-sm leading-6 text-amber-800">
+                  <strong>PDF 简化分析模式</strong>
+                  ：当前仅提供基础摘要与阅读引导。如需完整结构化分析，建议优先使用 EPUB 文件，或解锁当前 PDF 的完整版分析。
+                </p>
+              </div>
+            )}
+
+            {/* Paywall card */}
+            {isLiteMode && !isLiteUnlocked && (
+              <div className="mb-8 rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
+                  解锁完整版分析
+                </p>
+                <p className="text-base font-semibold text-gray-900 mb-4">
+                  解锁后可获得以下深度分析内容
+                </p>
+                <ul className="space-y-2 mb-5">
+                  {["观点地图", "行动提炼", "观点校验", "思想溯源", "Obsidian 知识包导出"].map(
+                    (feature) => (
+                      <li key={feature} className="flex items-center gap-2 text-sm text-gray-700">
+                        <span className="text-green-500 font-bold">✓</span>
+                        {feature}
+                      </li>
+                    )
+                  )}
+                </ul>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-2xl font-bold text-gray-900">
+                    ¥9.9
+                    <span className="text-sm font-normal text-gray-400 ml-1">/ 本</span>
+                  </span>
+                  <button
+                    onClick={() => setIsPaywallModalOpen(true)}
+                    className="rounded-xl bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
+                  >
+                    立即解锁完整版
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 阅读前 section */}
             {beforeReadingCards.length > 0 && (
               <div className="mb-10">
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
@@ -459,7 +555,8 @@ export default function Home() {
               </div>
             )}
 
-            {afterReadingCards.length > 0 && (
+            {/* 阅读后 section */}
+            {(!isLiteMode || isLiteUnlocked) && afterReadingCards.length > 0 && (
               <div className="mb-10">
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
                   阅读后
@@ -471,6 +568,61 @@ export default function Home() {
             )}
           </>
         )}
+
+        {/* Payment modal */}
+        {isPaywallModalOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsPaywallModalOpen(false);
+            }}
+          >
+            <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl p-7 flex flex-col items-center gap-5">
+              <div className="w-full">
+                <p className="text-lg font-semibold text-gray-900 mb-1">支付解锁完整版分析</p>
+                <p className="text-sm text-gray-500">请使用微信扫码支付 ¥9.9</p>
+              </div>
+
+              {/* QR code */}
+              <div className="rounded-xl border border-gray-100 p-3 bg-gray-50">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/wechat-pay-qrcode.jpg"
+                  alt="微信支付二维码"
+                  className="w-44 h-44 object-contain"
+                />
+              </div>
+
+              <p className="text-xs text-gray-400 text-center">
+                支付完成后，点击下方按钮继续
+              </p>
+
+              <div className="w-full flex flex-col gap-2">
+                <button
+                  onClick={handleUnlock}
+                  className="w-full rounded-xl bg-black py-3 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
+                >
+                  我已支付，继续解锁
+                </button>
+                <button
+                  onClick={() => setIsPaywallModalOpen(false)}
+                  className="w-full rounded-xl py-2.5 text-sm text-gray-500 hover:text-gray-700 transition"
+                >
+                  暂不解锁
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Footer */}
+        <footer className="mt-20 mb-4 flex flex-col items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/Richology商标黑体.png"
+            alt="Richology"
+            className="h-8 w-auto object-contain"
+          />
+        </footer>
       </div>
     </main>
   );
