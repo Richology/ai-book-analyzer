@@ -24,3 +24,126 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Markdown prose rendering inside analysis cards */
+.md-prose {
+  font-size: 0.875rem;
+  line-height: 1.8;
+  color: #374151;
+}
+
+/* Remove excess top margin on the very first element */
+.md-prose > *:first-child {
+  margin-top: 0;
+}
+
+/* Remove excess bottom margin on the very last element */
+.md-prose > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-prose h1 {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 1.5rem 0 0.6rem;
+  line-height: 1.4;
+}
+
+.md-prose h2 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #111827;
+  margin: 1.25rem 0 0.5rem;
+  line-height: 1.4;
+}
+
+.md-prose h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 1rem 0 0.4rem;
+  line-height: 1.4;
+}
+
+.md-prose p {
+  margin: 0.65rem 0;
+  line-height: 1.8;
+}
+
+/* Tighten paragraph after a heading */
+.md-prose h1 + p,
+.md-prose h2 + p,
+.md-prose h3 + p {
+  margin-top: 0.3rem;
+}
+
+.md-prose ul {
+  margin: 0.65rem 0;
+  padding-left: 1.375rem;
+  list-style-type: disc;
+}
+
+.md-prose ol {
+  margin: 0.65rem 0;
+  padding-left: 1.375rem;
+  list-style-type: decimal;
+}
+
+.md-prose li {
+  margin: 0.35rem 0;
+  line-height: 1.75;
+}
+
+/* Nested lists */
+.md-prose li > ul,
+.md-prose li > ol {
+  margin: 0.25rem 0;
+}
+
+.md-prose strong {
+  font-weight: 600;
+  color: #111827;
+}
+
+.md-prose em {
+  font-style: italic;
+  color: #4b5563;
+}
+
+.md-prose hr {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.25rem 0;
+}
+
+.md-prose blockquote {
+  border-left: 3px solid #d1d5db;
+  padding: 0.1rem 0 0.1rem 0.875rem;
+  color: #6b7280;
+  margin: 0.75rem 0;
+  font-style: italic;
+}
+
+.md-prose code {
+  background: #f3f4f6;
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: #374151;
+}
+
+.md-prose pre {
+  background: #f3f4f6;
+  padding: 0.875rem 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.md-prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.8125rem;
+}

@@ -1,37 +1,15 @@
 import { NextResponse } from "next/server";
 import JSZip from "jszip";
 
-type Chapter = {
-  id: string;
-  title: string;
-  text: string;
-  summary?: string;
-};
-
 type ExportRequestBody = {
   title: string;
+  bookSummary: string;
   readingGuide: string;
   viewMap: string;
   actionExtraction: string;
-  bookSummary: string;
-  chapters: Chapter[];
+  viewValidation: string;
+  ideaSourceTracing: string;
 };
-
-function buildChapterSummariesMd(chapters: Chapter[]): string {
-  const sections = chapters.map((chapter, index) => {
-    return [
-      `## 第${index + 1}章：${chapter.title}`,
-      "",
-      "### 摘要",
-      chapter.summary || "暂无摘要",
-      "",
-      "### 正文预览",
-      chapter.text,
-    ].join("\n");
-  });
-
-  return ["# 章节摘要", "", ...sections].join("\n\n");
-}
 
 function sanitizeFolderName(name: string): string {
   return name.replace(/[/\\:*?"<>|]/g, "-").trim();
@@ -40,16 +18,25 @@ function sanitizeFolderName(name: string): string {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ExportRequestBody;
-    const { title, readingGuide, viewMap, actionExtraction, bookSummary, chapters } = body;
+    const {
+      title,
+      bookSummary,
+      readingGuide,
+      viewMap,
+      actionExtraction,
+      viewValidation,
+      ideaSourceTracing,
+    } = body;
 
     const folderName = sanitizeFolderName(title || "未知书名");
 
     const files: Record<string, string> = {
-      "00-阅读指南.md": `# 阅读指南\n\n${readingGuide}`,
-      "01-观点地图.md": `# 观点地图\n\n${viewMap}`,
-      "02-行动提炼.md": `# 行动提炼\n\n${actionExtraction}`,
-      "03-全书摘要.md": `# 全书摘要\n\n${bookSummary}`,
-      "04-章节摘要.md": buildChapterSummariesMd(chapters),
+      "01-全书摘要.md": `# 全书摘要\n\n${bookSummary}`,
+      "02-阅读指南.md": `# 阅读指南\n\n${readingGuide}`,
+      "03-观点地图.md": `# 观点地图\n\n${viewMap}`,
+      "04-行动提炼.md": `# 行动提炼\n\n${actionExtraction}`,
+      "05-观点校验.md": `# 观点校验\n\n${viewValidation}`,
+      "06-思想溯源.md": `# 思想溯源\n\n${ideaSourceTracing}`,
     };
 
     const zip = new JSZip();

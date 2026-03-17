@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
 type Chapter = {
   id: string;
@@ -25,7 +28,30 @@ export default function Home() {
   const [isLoadingViewMap, setIsLoadingViewMap] = useState(false);
   const [isLoadingActionExtraction, setIsLoadingActionExtraction] = useState(false);
   const [isLoadingViewValidation, setIsLoadingViewValidation] = useState(false);
+  const [isLoadingIdeaSourceTracing, setIsLoadingIdeaSourceTracing] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+
+  const toggleCard = (key: string) => {
+    setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const resetAllState = () => {
+    setBookTitle("");
+    setBookSummary("");
+    setReadingGuide("");
+    setIsLoadingReadingGuide(false);
+    setViewMap("");
+    setIsLoadingViewMap(false);
+    setActionExtraction("");
+    setIsLoadingActionExtraction(false);
+    setCriticalExamination("");
+    setIsLoadingViewValidation(false);
+    setIdeaSourceTracing("");
+    setIsLoadingIdeaSourceTracing(false);
+    setChapters([]);
+    setExpandedCards({});
+  };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -33,18 +59,7 @@ export default function Home() {
     if (!file) {
       setSelectedFile(null);
       setMessage("");
-      setBookTitle("");
-      setViewMap("");
-      setIsLoadingViewMap(false);
-      setReadingGuide("");
-      setIsLoadingReadingGuide(false);
-      setActionExtraction("");
-      setIsLoadingActionExtraction(false);
-      setCriticalExamination("");
-      setIsLoadingViewValidation(false);
-      setIdeaSourceTracing("");
-      setBookSummary("");
-      setChapters([]);
+      resetAllState();
       return;
     }
 
@@ -55,40 +70,46 @@ export default function Home() {
     if (!isValidType) {
       setSelectedFile(null);
       setMessage("仅支持上传 PDF 或 EPUB 文件。");
-      setBookTitle("");
-      setViewMap("");
-      setIsLoadingViewMap(false);
-      setReadingGuide("");
-      setIsLoadingReadingGuide(false);
-      setActionExtraction("");
-      setIsLoadingActionExtraction(false);
-      setCriticalExamination("");
-      setIsLoadingViewValidation(false);
-      setIdeaSourceTracing("");
-      setBookSummary("");
-      setChapters([]);
+      resetAllState();
       return;
     }
 
     setSelectedFile(file);
     setMessage("");
-    setBookTitle("");
-    setViewMap("");
-    setIsLoadingViewMap(false);
-    setReadingGuide("");
-    setIsLoadingReadingGuide(false);
-    setActionExtraction("");
-    setIsLoadingActionExtraction(false);
-    setCriticalExamination("");
-    setIsLoadingViewValidation(false);
-    setIdeaSourceTracing("");
-    setChapters([]);
+    resetAllState();
+  };
+
+  const fetchIdeaSourceTracing = async (
+    title: string,
+    bookSummary: string,
+    viewMap: string
+  ) => {
+    try {
+      setIsLoadingIdeaSourceTracing(true);
+
+      const res = await fetch("/api/skills/idea-source-tracing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, bookSummary, viewMap }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setIdeaSourceTracing(data.ideaSourceTracing || "");
+      }
+    } catch (error) {
+      console.error("思想溯源生成失败:", error);
+    } finally {
+      setIsLoadingIdeaSourceTracing(false);
+    }
   };
 
   const fetchViewValidation = async (
     title: string,
     bookSummary: string,
-    chapters: Chapter[]
+    chapters: Chapter[],
+    viewMapResult: string
   ) => {
     try {
       setIsLoadingViewValidation(true);
@@ -108,13 +129,15 @@ export default function Home() {
       console.error("观点校验生成失败:", error);
     } finally {
       setIsLoadingViewValidation(false);
+      fetchIdeaSourceTracing(title, bookSummary, viewMapResult);
     }
   };
 
   const fetchActionExtraction = async (
     title: string,
     bookSummary: string,
-    chapters: Chapter[]
+    chapters: Chapter[],
+    viewMapResult: string
   ) => {
     try {
       setIsLoadingActionExtraction(true);
@@ -134,7 +157,7 @@ export default function Home() {
       console.error("行动提炼生成失败:", error);
     } finally {
       setIsLoadingActionExtraction(false);
-      fetchViewValidation(title, bookSummary, chapters);
+      fetchViewValidation(title, bookSummary, chapters, viewMapResult);
     }
   };
 
@@ -143,6 +166,7 @@ export default function Home() {
     bookSummary: string,
     chapters: Chapter[]
   ) => {
+    let viewMapResult = "";
     try {
       setIsLoadingViewMap(true);
 
@@ -155,13 +179,14 @@ export default function Home() {
       const data = await res.json();
 
       if (data.success) {
-        setViewMap(data.viewMap || "");
+        viewMapResult = data.viewMap || "";
+        setViewMap(viewMapResult);
       }
     } catch (error) {
       console.error("观点地图生成失败:", error);
     } finally {
       setIsLoadingViewMap(false);
-      fetchActionExtraction(title, bookSummary, chapters);
+      fetchActionExtraction(title, bookSummary, chapters, viewMapResult);
     }
   };
 
@@ -203,11 +228,12 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: bookTitle,
+          bookSummary,
           readingGuide,
           viewMap,
           actionExtraction,
-          bookSummary,
-          chapters,
+          viewValidation: criticalExamination,
+          ideaSourceTracing,
         }),
       });
 
@@ -240,18 +266,7 @@ export default function Home() {
     try {
       setIsLoading(true);
       setMessage("正在上传并解析章节...");
-      setBookTitle("");
-      setViewMap("");
-      setIsLoadingViewMap(false);
-      setReadingGuide("");
-      setIsLoadingReadingGuide(false);
-      setActionExtraction("");
-      setIsLoadingActionExtraction(false);
-      setCriticalExamination("");
-      setIsLoadingViewValidation(false);
-      setIdeaSourceTracing("");
-      setBookSummary("");
-      setChapters([]);
+      resetAllState();
 
       const formData = new FormData();
       formData.append("file", selectedFile);
@@ -286,18 +301,104 @@ export default function Home() {
     }
   };
 
+  const renderCard = (
+    key: string,
+    label: string,
+    content: string,
+    isLoadingCard: boolean,
+    loadingText: string,
+    sectionHasExpanded: boolean = false
+  ) => {
+    if (!isLoadingCard && !content) return null;
+
+    const isExpanded = expandedCards[key] ?? false;
+
+    const cardClassName = (() => {
+      const base =
+        "shrink-0 w-[85vw] md:w-80 rounded-2xl bg-white border p-5 flex flex-col gap-3 snap-center transition-all duration-200";
+      if (isLoadingCard) {
+        return `${base} border-gray-100 shadow-sm cursor-default`;
+      }
+      if (isExpanded) {
+        return `${base} border-gray-300 shadow-lg scale-[1.015] cursor-pointer`;
+      }
+      if (sectionHasExpanded) {
+        return `${base} border-gray-100 shadow-sm opacity-40 cursor-pointer`;
+      }
+      return `${base} border-gray-100 shadow-sm cursor-pointer hover:shadow-md hover:border-gray-200 active:scale-[0.99]`;
+    })();
+
+    return (
+      <div
+        key={key}
+        onClick={() => {
+          if (!isLoadingCard) toggleCard(key);
+        }}
+        className={cardClassName}
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 select-none">
+          {label}
+        </p>
+
+        {isLoadingCard ? (
+          <div className="space-y-2.5">
+            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-3/4" />
+            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-full" />
+            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-5/6" />
+            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-2/3" />
+            <p className="text-[11px] text-gray-400 pt-1">{loadingText}</p>
+          </div>
+        ) : (
+          <>
+            <div className={`relative overflow-hidden ${isExpanded ? "" : "max-h-24"}`}>
+              <div className="md-prose">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+              </div>
+              {!isExpanded && (
+                <div className="absolute bottom-0 inset-x-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400 text-right select-none pt-1">
+              {isExpanded ? "收起 ↑" : "展开阅读 ↓"}
+            </p>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const beforeReadingExpanded = ["bookSummary", "readingGuide", "viewMap"].some(
+    (k) => expandedCards[k]
+  );
+  const afterReadingExpanded = [
+    "actionExtraction",
+    "criticalExamination",
+    "ideaSourceTracing",
+  ].some((k) => expandedCards[k]);
+
+  const beforeReadingCards = [
+    renderCard("bookSummary", "全书摘要", bookSummary, false, "", beforeReadingExpanded),
+    renderCard("readingGuide", "阅读指南", readingGuide, isLoadingReadingGuide, "正在生成阅读指南...", beforeReadingExpanded),
+    renderCard("viewMap", "观点地图", viewMap, isLoadingViewMap, "正在生成观点地图...", beforeReadingExpanded),
+  ].filter(Boolean);
+
+  const afterReadingCards = [
+    renderCard("actionExtraction", "行动提炼", actionExtraction, isLoadingActionExtraction, "正在生成行动提炼...", afterReadingExpanded),
+    renderCard("criticalExamination", "观点校验", criticalExamination, isLoadingViewValidation, "正在生成观点校验...", afterReadingExpanded),
+    renderCard("ideaSourceTracing", "思想溯源", ideaSourceTracing, isLoadingIdeaSourceTracing, "正在生成思想溯源...", afterReadingExpanded),
+  ].filter(Boolean);
+
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <header className="mb-10 text-center">
           <h1 className="text-4xl font-bold mb-4">AI Book Analyzer</h1>
-          <p className="text-gray-600 max-w-2xl mx-auto leading-7">
-            上传一本电子书，自动生成阅读指南、观点地图、思想溯源、行动提炼与反方检验，
-            将书籍转化为结构化知识。
+          <p className="text-gray-500 max-w-xl mx-auto leading-7 text-sm">
+            上传电子书，将书籍转化为结构化的知识卡片，提升知识获取的效率和质量
           </p>
         </header>
 
-        <section className="bg-white shadow-lg rounded-2xl p-8 border border-gray-100 mb-8">
+        <section className="bg-white shadow-sm rounded-2xl p-8 border border-gray-100 mb-10">
           <label className="block mb-3 text-sm font-medium text-gray-700">
             选择电子书文件
           </label>
@@ -315,156 +416,60 @@ export default function Home() {
                 已选择：<strong>{selectedFile.name}</strong>
               </span>
             ) : (
-              <span>尚未选择文件</span>
+              <span className="text-gray-400">尚未选择文件</span>
             )}
           </div>
 
           <button
             onClick={handleAnalyze}
             disabled={isLoading}
-            className="w-full bg-black text-white py-3 rounded-lg hover:bg-gray-800 transition disabled:opacity-60"
+            className="w-full bg-black text-white py-3 rounded-xl hover:bg-gray-800 transition disabled:opacity-50 font-medium"
           >
             {isLoading ? "解析中..." : "开始分析"}
           </button>
 
           {message && (
-            <div className="mt-4 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700 border border-gray-100">
+            <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-600 border border-gray-100">
               {message}
             </div>
           )}
         </section>
 
         {bookTitle && (
-          <section className="bg-white shadow-sm rounded-2xl p-8 border border-gray-100">
-            <div className="flex items-start justify-between gap-4 mb-2">
-              <h2 className="text-2xl font-semibold">{bookTitle}</h2>
+          <>
+            <div className="flex items-center justify-between gap-4 mb-8">
+              <h2 className="text-xl font-semibold text-gray-900 truncate">{bookTitle}</h2>
               <button
                 onClick={handleExport}
                 disabled={isExporting}
-                className="shrink-0 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-60"
+                className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
               >
                 {isExporting ? "导出中..." : "导出 Obsidian 知识包"}
               </button>
             </div>
-            <p className="text-sm text-gray-500 mb-6">
-              已解析章节：{chapters.length} 个
-            </p>
 
-            {(isLoadingReadingGuide || readingGuide) && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  阅读指南
+            {beforeReadingCards.length > 0 && (
+              <div className="mb-10">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
+                  阅读前
                 </p>
-                {isLoadingReadingGuide ? (
-                  <p className="text-sm text-gray-400 animate-pulse">正在生成阅读指南...</p>
-                ) : (
-                  <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                    {readingGuide}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(isLoadingViewMap || viewMap) && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  观点地图
-                </p>
-                {isLoadingViewMap ? (
-                  <p className="text-sm text-gray-400 animate-pulse">正在生成观点地图...</p>
-                ) : (
-                  <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                    {viewMap}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(isLoadingActionExtraction || actionExtraction) && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  行动提炼
-                </p>
-                {isLoadingActionExtraction ? (
-                  <p className="text-sm text-gray-400 animate-pulse">正在生成行动提炼...</p>
-                ) : (
-                  <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                    {actionExtraction}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {(isLoadingViewValidation || criticalExamination) && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  观点校验
-                </p>
-                {isLoadingViewValidation ? (
-                  <p className="text-sm text-gray-400 animate-pulse">正在生成观点校验...</p>
-                ) : (
-                  <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                    {criticalExamination}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {ideaSourceTracing && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  思想溯源
-                </p>
-                <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                  {ideaSourceTracing}
+                <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                  {beforeReadingCards}
                 </div>
               </div>
             )}
 
-            {bookSummary && (
-              <div className="mb-6 rounded-xl border border-gray-100 bg-gray-50 p-5">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                  全书摘要
+            {afterReadingCards.length > 0 && (
+              <div className="mb-10">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
+                  阅读后
                 </p>
-                <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                  {bookSummary}
+                <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                  {afterReadingCards}
                 </div>
               </div>
             )}
-
-            <div className="space-y-4">
-              {chapters.map((chapter, index) => (
-                <details
-                  key={chapter.id}
-                  className="rounded-xl border border-gray-100 bg-gray-50 p-5"
-                >
-                  <summary className="cursor-pointer font-medium text-gray-900">
-                    第 {index + 1} 章：{chapter.title}
-                  </summary>
-
-                  <div className="mt-4 space-y-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                        章节摘要
-                      </p>
-                      <div className="rounded-lg bg-white p-4 text-sm leading-7 text-gray-700 border border-gray-100">
-                        {chapter.summary || "暂无摘要"}
-                      </div>
-                    </div>
-
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                        章节正文预览
-                      </p>
-                      <div className="text-sm leading-7 text-gray-700 whitespace-pre-wrap">
-                        {chapter.text}
-                      </div>
-                    </div>
-                  </div>
-                </details>
-              ))}
-            </div>
-          </section>
+          </>
         )}
       </div>
     </main>

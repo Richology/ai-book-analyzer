@@ -2,14 +2,12 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import Epub from "epub2";
-import { generateChapterSummaries } from "@/lib/skills/generateChapterSummaries";
 import { generateBookSummary } from "@/lib/skills/generateBookSummary";
 
 type ChapterItem = {
   id: string;
   title: string;
   text: string;
-  summary?: string;
 };
 
 export async function POST(request: Request) {
@@ -53,17 +51,13 @@ export async function POST(request: Request) {
     if (isEpub) {
       const epubData = await parseEpub(filePath);
 
-      const chaptersWithSummary = await generateChapterSummaries(epubData.chapters);
+      const chapterContextForSummary = epubData.chapters.map((c, index) => ({
+        index: index + 1,
+        title: c.title,
+        summary: c.text.slice(0, 800),
+      }));
 
-      const validChapterSummaries = chaptersWithSummary
-        .filter((chapter) => chapter.summary && !chapter.summary.includes("暂未生成"))
-        .map((chapter, index) => ({
-          index: index + 1,
-          title: chapter.title,
-          summary: chapter.summary,
-        }));
-
-      const bookSummary = await generateBookSummary(epubData.title, validChapterSummaries);
+      const bookSummary = await generateBookSummary(epubData.title, chapterContextForSummary);
 
       return NextResponse.json({
         success: true,
@@ -71,7 +65,7 @@ export async function POST(request: Request) {
         filename: file.name,
         title: epubData.title,
         bookSummary,
-        chapters: chaptersWithSummary,
+        chapters: epubData.chapters,
       });
     }
 
@@ -81,14 +75,7 @@ export async function POST(request: Request) {
       filename: file.name,
       title: "PDF 文件",
       bookSummary: "当前版本仅完成 PDF 上传，尚未生成全书摘要。",
-      chapters: [
-        {
-          id: "pdf-preview",
-          title: "PDF 解析下一步接入",
-          text: "当前已成功上传 PDF，下一步我们会接入 PDF 的正文提取与章节识别。",
-          summary: "当前版本仅完成 PDF 上传，尚未生成章节摘要。",
-        },
-      ],
+      chapters: [],
     });
   } catch (error) {
     console.error("分析失败:", error);
