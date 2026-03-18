@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -12,8 +12,18 @@ type Chapter = {
   summary?: string;
 };
 
+type ImmersiveCardDef = {
+  key: string;
+  label: string;
+  content: string;
+  isLoading: boolean;
+  loadingText: string;
+};
+
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const touchStartXRef = useRef(0);
+  const immersiveCardsLenRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
@@ -37,10 +47,33 @@ export default function Home() {
   const [isLiteUnlocked, setIsLiteUnlocked] = useState(false);
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<"card" | "immersive">("card");
+  const [immersiveIndex, setImmersiveIndex] = useState(0);
+  const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
 
   const toggleCard = (key: string) => {
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
   };
+
+  const navigateImmersive = (dir: "prev" | "next") => {
+    const len = immersiveCardsLenRef.current;
+    if (len === 0) return;
+    setSlideDir(dir === "next" ? "left" : "right");
+    setImmersiveIndex((prev) =>
+      dir === "next" ? (prev + 1) % len : (prev - 1 + len) % len
+    );
+  };
+
+  useEffect(() => {
+    if (viewMode !== "immersive") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") navigateImmersive("prev");
+      if (e.key === "ArrowRight") navigateImmersive("next");
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
   const resetAllState = () => {
     setBookTitle("");
@@ -61,6 +94,9 @@ export default function Home() {
     setIsLiteUnlocked(false);
     setIsPaywallModalOpen(false);
     setExpandedCards({});
+    setViewMode("card");
+    setImmersiveIndex(0);
+    setSlideDir(null);
   };
 
   const processFile = (file: File | undefined | null) => {
@@ -467,7 +503,6 @@ export default function Home() {
       </div>
     );
   };
-
   const beforeReadingExpanded = ["bookSummary", "readingGuide", "viewMap"].some(
     (k) => expandedCards[k]
   );
@@ -488,6 +523,44 @@ export default function Home() {
     renderCard("criticalExamination", "观点校验", criticalExamination, isLoadingViewValidation, "正在生成观点校验...", afterReadingExpanded),
     renderCard("ideaSourceTracing", "思想溯源", ideaSourceTracing, isLoadingIdeaSourceTracing, "正在生成思想溯源...", afterReadingExpanded),
   ].filter(Boolean);
+
+  // Immersive mode: flat ordered card list
+  const allImmersiveCardDefs: ImmersiveCardDef[] = [
+    { key: "bookSummary",        label: "全书摘要", content: bookSummary,        isLoading: isLoadingBookSummary,        loadingText: "正在生成全书摘要..." },
+    { key: "readingGuide",       label: "阅读指南", content: readingGuide,       isLoading: isLoadingReadingGuide,       loadingText: "正在生成阅读指南..." },
+    { key: "viewMap",            label: "观点地图", content: viewMap,            isLoading: isLoadingViewMap,            loadingText: "正在生成观点地图..." },
+    { key: "actionExtraction",   label: "行动提炼", content: actionExtraction,   isLoading: isLoadingActionExtraction,   loadingText: "正在生成行动提炼..." },
+    { key: "criticalExamination",label: "观点校验", content: criticalExamination,isLoading: isLoadingViewValidation,     loadingText: "正在生成观点校验..." },
+    { key: "ideaSourceTracing",  label: "思想溯源", content: ideaSourceTracing,  isLoading: isLoadingIdeaSourceTracing,  loadingText: "正在生成思想溯源..." },
+  ];
+
+  const immersiveCardList = allImmersiveCardDefs.filter((card) => {
+    if (!isLiteMode || isLiteUnlocked) return card.isLoading || !!card.content;
+    return (
+      ["bookSummary", "readingGuide"].includes(card.key) &&
+      (card.isLoading || !!card.content)
+    );
+  });
+
+  immersiveCardsLenRef.current = immersiveCardList.length;
+
+  const safeImmersiveIndex =
+    immersiveCardList.length > 0
+      ? Math.min(immersiveIndex, immersiveCardList.length - 1)
+      : 0;
+
+  const currentImmersiveCard = immersiveCardList[safeImmersiveIndex];
+
+  const handleImmersiveTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+
+  const handleImmersiveTouchEnd = (e: React.TouchEvent) => {
+    const delta = e.changedTouches[0].clientX - touchStartXRef.current;
+    if (Math.abs(delta) > 50) {
+      navigateImmersive(delta < 0 ? "next" : "prev");
+    }
+  };
 
   return (
     <main className="min-h-screen bg-gray-50 px-6 py-10">
@@ -606,7 +679,7 @@ export default function Home() {
         {bookTitle && (
           <>
             {/* Book title bar */}
-            <div className="flex items-center justify-between gap-4 mb-8">
+            <div className="flex items-center justify-between gap-4 mb-4">
               <h2 className="text-xl font-semibold text-gray-900 truncate">{bookTitle}</h2>
               {(!isLiteMode || isLiteUnlocked) && (
                 <button
@@ -618,6 +691,38 @@ export default function Home() {
                 </button>
               )}
             </div>
+
+            {/* View mode toggle */}
+            {immersiveCardList.length > 0 && (
+              <div className="flex items-center mb-8">
+                <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                  <button
+                    onClick={() => setViewMode("card")}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
+                      viewMode === "card"
+                        ? "bg-black text-white shadow-sm"
+                        : "text-gray-500 hover:text-gray-800"
+                    }`}
+                  >
+                    卡片模式
+                  </button>
+                  <button
+                    onClick={() => {
+                      setViewMode("immersive");
+                      setImmersiveIndex(0);
+                      setSlideDir(null);
+                    }}
+                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
+                      viewMode === "immersive"
+                        ? "bg-black text-white shadow-sm"
+                        : "text-gray-500 hover:text-gray-800"
+                    }`}
+                  >
+                    沉浸阅读
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* PDF Lite mode info banner (locked) */}
             {isLiteMode && !isLiteUnlocked && (
@@ -664,28 +769,118 @@ export default function Home() {
               </div>
             )}
 
-            {/* 阅读前 section */}
-            {beforeReadingCards.length > 0 && (
-              <div className="mb-10">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
-                  阅读前
+            {/* ── Immersive mode ── */}
+            {viewMode === "immersive" && immersiveCardList.length > 0 && currentImmersiveCard && (
+              <div
+                className="mx-auto max-w-2xl mb-10"
+                onTouchStart={handleImmersiveTouchStart}
+                onTouchEnd={handleImmersiveTouchEnd}
+              >
+                {/* Progress indicator */}
+                <p className="text-center text-xs text-gray-400 mb-4 select-none tracking-wider">
+                  {safeImmersiveIndex + 1} / {immersiveCardList.length}
                 </p>
-                <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
-                  {beforeReadingCards}
+
+                {/* Card */}
+                <div
+                  key={safeImmersiveIndex}
+                  className={`rounded-2xl bg-white border border-gray-100 shadow-sm p-8 ${
+                    slideDir === "left"
+                      ? "animate-slide-from-right"
+                      : slideDir === "right"
+                      ? "animate-slide-from-left"
+                      : ""
+                  }`}
+                >
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-5">
+                    {currentImmersiveCard.label}
+                  </p>
+                  {currentImmersiveCard.isLoading ? (
+                    <div className="space-y-3">
+                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-3/4" />
+                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-full" />
+                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-5/6" />
+                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-2/3" />
+                      <p className="text-xs text-gray-400 pt-1">{currentImmersiveCard.loadingText}</p>
+                    </div>
+                  ) : (
+                    <div className="md-prose">
+                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                        {currentImmersiveCard.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
+
+                {/* Navigation row */}
+                <div className="flex items-center justify-between mt-6">
+                  <button
+                    onClick={() => navigateImmersive("prev")}
+                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition active:scale-[0.97] select-none"
+                  >
+                    ← 上一篇
+                  </button>
+
+                  {/* Dot indicators */}
+                  <div className="flex items-center gap-1.5">
+                    {immersiveCardList.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setSlideDir(i > safeImmersiveIndex ? "left" : "right");
+                          setImmersiveIndex(i);
+                        }}
+                        className={`h-1.5 rounded-full transition-all duration-200 ${
+                          i === safeImmersiveIndex
+                            ? "w-4 bg-gray-800"
+                            : "w-1.5 bg-gray-300 hover:bg-gray-400"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => navigateImmersive("next")}
+                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition active:scale-[0.97] select-none"
+                  >
+                    下一篇 →
+                  </button>
+                </div>
+
+                {/* Keyboard hint */}
+                <p className="text-center text-[11px] text-gray-300 mt-3 select-none hidden md:block">
+                  使用键盘 ← → 方向键切换
+                </p>
               </div>
             )}
 
-            {/* 阅读后 section */}
-            {(!isLiteMode || isLiteUnlocked) && afterReadingCards.length > 0 && (
-              <div className="mb-10">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
-                  阅读后
-                </p>
-                <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
-                  {afterReadingCards}
-                </div>
-              </div>
+            {/* ── Card mode ── */}
+            {viewMode === "card" && (
+              <>
+                {/* 阅读前 section */}
+                {beforeReadingCards.length > 0 && (
+                  <div className="mb-10">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
+                      阅读前
+                    </p>
+                    <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                      {beforeReadingCards}
+                    </div>
+                  </div>
+                )}
+
+                {/* 阅读后 section */}
+                {(!isLiteMode || isLiteUnlocked) && afterReadingCards.length > 0 && (
+                  <div className="mb-10">
+                    <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
+                      阅读后
+                    </p>
+                    <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                      {afterReadingCards}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
@@ -748,3 +943,4 @@ export default function Home() {
     </main>
   );
 }
+
