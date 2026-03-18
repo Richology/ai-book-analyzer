@@ -117,6 +117,7 @@ export default function Home() {
   ) => {
     try {
       setIsLoadingIdeaSourceTracing(true);
+      setMessage("正在生成思想溯源...");
 
       const res = await fetch("/api/skills/idea-source-tracing", {
         method: "POST",
@@ -128,6 +129,7 @@ export default function Home() {
 
       if (data.success) {
         setIdeaSourceTracing(data.ideaSourceTracing || "");
+        setMessage("分析完成");
       }
     } catch (error) {
       console.error("思想溯源生成失败:", error);
@@ -144,6 +146,7 @@ export default function Home() {
   ) => {
     try {
       setIsLoadingViewValidation(true);
+      setMessage("正在生成观点校验...");
 
       const res = await fetch("/api/skills/view-validation", {
         method: "POST",
@@ -172,6 +175,7 @@ export default function Home() {
   ) => {
     try {
       setIsLoadingActionExtraction(true);
+      setMessage("正在生成行动提炼...");
 
       const res = await fetch("/api/skills/action-extraction", {
         method: "POST",
@@ -200,6 +204,7 @@ export default function Home() {
     let viewMapResult = "";
     try {
       setIsLoadingViewMap(true);
+      setMessage("正在生成观点地图...");
 
       const res = await fetch("/api/skills/view-map", {
         method: "POST",
@@ -229,6 +234,7 @@ export default function Home() {
   ) => {
     try {
       setIsLoadingReadingGuide(true);
+      setMessage("正在生成阅读指南...");
 
       const res = await fetch("/api/skills/reading-guide", {
         method: "POST",
@@ -247,6 +253,8 @@ export default function Home() {
       setIsLoadingReadingGuide(false);
       if (continueChain) {
         fetchViewMap(title, bookSummary, chapters);
+      } else {
+        setMessage("分析完成");
       }
     }
   };
@@ -259,10 +267,10 @@ export default function Home() {
     const title = bookTitle;
     const currentChapters = chapters;
 
-    // Step 1: generate a real book summary from extracted PDF text
     let realSummary = "";
     try {
       setIsLoadingBookSummary(true);
+      setMessage("正在生成全书摘要...");
       const res = await fetch("/api/skills/book-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -379,7 +387,7 @@ export default function Home() {
       const chapters = data.chapters || [];
       const liteMode = data.mode === "lite";
 
-      setMessage(`文件解析成功：${data.filename}`);
+      setMessage("文件解析成功，正在进入分析流程...");
       setBookTitle(title);
       setBookSummary(bookSummary);
       setChapters(chapters);
@@ -558,11 +566,41 @@ export default function Home() {
             {isLoading ? "解析中..." : "开始分析"}
           </button>
 
-          {message && (
-            <div className="mt-4 rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-600 border border-gray-100">
-              {message}
-            </div>
-          )}
+          {message && (() => {
+            const isAnalyzing =
+              isLoading ||
+              isLoadingBookSummary ||
+              isLoadingReadingGuide ||
+              isLoadingViewMap ||
+              isLoadingActionExtraction ||
+              isLoadingViewValidation ||
+              isLoadingIdeaSourceTracing;
+
+            return (
+              <div
+                className={`mt-4 rounded-xl px-4 py-3 text-sm border transition-colors duration-300 ${
+                  isAnalyzing
+                    ? "bg-gray-50 border-gray-200 text-gray-700"
+                    : message === "分析完成"
+                    ? "bg-emerald-50 border-emerald-100 text-emerald-700"
+                    : "bg-gray-50 border-gray-100 text-gray-600"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  {isAnalyzing && (
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-75" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-gray-500" />
+                    </span>
+                  )}
+                  {message === "分析完成" && !isAnalyzing && (
+                    <span className="shrink-0 text-emerald-500">✓</span>
+                  )}
+                  {message}
+                </span>
+              </div>
+            );
+          })()}
         </section>
 
         {bookTitle && (
