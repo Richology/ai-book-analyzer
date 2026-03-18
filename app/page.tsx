@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+import { BookShareModal } from "./components/BookShareModal";
+import {
+  ExportModal,
+  type ExportParams,
+  type ExportSection,
+} from "./components/ExportModal";
 
 type Chapter = {
   id: string;
@@ -20,6 +26,423 @@ type ImmersiveCardDef = {
   loadingText: string;
 };
 
+type ShareModalState = {
+  label: string;
+  content: string;
+  bookTitle: string;
+} | null;
+
+// ── Share card content helpers ─────────────────────────────────────────────────
+type ShareItem = { type: "heading" | "bullet" | "para"; text: string };
+
+function cleanInlineMd(s: string): string {
+  return s
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+    .trim();
+}
+
+function parseShareItems(md: string): ShareItem[] {
+  const items: ShareItem[] = [];
+  for (const line of md.split("\n")) {
+    const t = line.trim();
+    if (!t || /^[-=*]{3,}$/.test(t)) continue;
+    const hMatch = t.match(/^#{1,6}\s+(.+)/);
+    if (hMatch) { items.push({ type: "heading", text: cleanInlineMd(hMatch[1]) }); continue; }
+    const bMatch = t.match(/^[-*+]\s+(.+)/);
+    if (bMatch) { items.push({ type: "bullet",  text: cleanInlineMd(bMatch[1])  }); continue; }
+    const nMatch = t.match(/^\d+\.\s+(.+)/);
+    if (nMatch) { items.push({ type: "bullet",  text: cleanInlineMd(nMatch[1])  }); continue; }
+    if (t.length > 4) items.push({ type: "para", text: cleanInlineMd(t) });
+  }
+  return items;
+}
+
+function buildShareItems(md: string): { items: ShareItem[]; truncated: boolean } {
+  const all = parseShareItems(md);
+  const MAX_ITEMS     = 5;
+  const MAX_HEADING   = 28;
+  const MAX_PER_ITEM  = 54;
+  const MAX_TOTAL     = 240;
+
+  const result: ShareItem[] = [];
+  let totalChars = 0;
+
+  for (const item of all) {
+    if (result.length >= MAX_ITEMS || totalChars >= MAX_TOTAL) break;
+    const cap  = item.type === "heading" ? MAX_HEADING : MAX_PER_ITEM;
+    const room = Math.min(MAX_TOTAL - totalChars, cap);
+    if (room < 5) break;
+    const text = item.text.length > room
+      ? item.text.slice(0, room).trimEnd() + "…"
+      : item.text;
+    result.push({ ...item, text });
+    totalChars += text.length;
+  }
+
+  const truncated =
+    all.length > result.length ||
+    result.some((r, i) => r.text !== all[i]?.text);
+
+  return { items: result, truncated };
+}
+
+// ── Share Card Modal ──────────────────────────────────────────────────────────
+const CARD_W = 540;
+const CARD_FONT = "-apple-system,'PingFang SC','Helvetica Neue',Arial,sans-serif";
+
+function ShareModal({
+  data,
+  onClose,
+}: {
+  data: NonNullable<ShareModalState>;
+  onClose: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  // Show ALL parsed items – no truncation
+  const items = parseShareItems(data.content);
+
+  const handleSave = async () => {
+    if (!cardRef.current) return;
+    setIsSaving(true);
+    try {
+      const html2canvas = (await import("html2canvas")).default;
+      // Let html2canvas measure the element's natural dimensions
+      const canvas = await html2canvas(cardRef.current, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+      });
+      const url = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url;
+      const safeName = `${data.bookTitle.slice(0, 16)}-${data.label}-书跃`.replace(/[/\\:*?"<>|]/g, "");
+      a.download = `${safeName}.png`;
+      a.click();
+    } catch (err) {
+      console.error("保存失败:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0,0,0,0.65)",
+        backdropFilter: "blur(6px)",
+        padding: "20px 16px",
+        fontFamily: CARD_FONT,
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {/* Modal shell */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 596,
+          maxHeight: "92vh",
+          background: "#fff",
+          borderRadius: 24,
+          boxShadow: "0 32px 96px rgba(0,0,0,0.28)",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        {/* Modal header bar */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 24px",
+            borderBottom: "1px solid #f3f4f6",
+            flexShrink: 0,
+          }}
+        >
+          <p style={{ fontSize: 14, fontWeight: 600, color: "#111827", margin: 0 }}>
+            分享卡片预览
+          </p>
+          <button
+            onClick={onClose}
+            style={{
+              width: 28, height: 28, display: "flex",
+              alignItems: "center", justifyContent: "center",
+              borderRadius: "50%", border: "none",
+              background: "transparent", cursor: "pointer",
+              color: "#9ca3af", fontSize: 14,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Scrollable preview area */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "auto",
+            padding: "24px 28px",
+            background: "#f4f4f5",
+          }}
+        >
+          {/* ── Dedicated share card (the element captured by html2canvas) ── */}
+          <div
+            ref={cardRef}
+            style={{
+              width: CARD_W,
+              /* No fixed height – expands to fit full content */
+              background: "#ffffff",
+              borderRadius: 20,
+              boxShadow: "0 4px 32px rgba(0,0,0,0.10)",
+              fontFamily: CARD_FONT,
+              display: "flex",
+              flexDirection: "column",
+              margin: "0 auto",
+            }}
+          >
+            {/* ── Top: dark branded header ── */}
+            <div
+              style={{
+                background: "linear-gradient(150deg,#0f172a 0%,#1e293b 100%)",
+                padding: "28px 36px 26px",
+                borderRadius: "20px 20px 0 0",
+              }}
+            >
+              {/* Brand + slogan – single quiet line */}
+              <p
+                style={{
+                  color: "rgba(255,255,255,0.35)",
+                  fontSize: 10,
+                  letterSpacing: "0.1em",
+                  margin: "0 0 14px 0",
+                  lineHeight: 1,
+                }}
+              >
+                书跃 · BookLeap &nbsp;·&nbsp; 从好书中完成认知跃迁
+              </p>
+
+              {/* Book title – the most prominent element */}
+              <p
+                style={{
+                  color: "#ffffff",
+                  fontSize: 22,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  margin: "0 0 16px 0",
+                  letterSpacing: "0.01em",
+                  wordBreak: "break-all",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {data.bookTitle}
+              </p>
+
+              {/* Section label pill */}
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  background: "rgba(255,255,255,0.12)",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  borderRadius: 20,
+                  padding: "4px 14px",
+                }}
+              >
+                <span
+                  style={{
+                    color: "rgba(255,255,255,0.88)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  {data.label}
+                </span>
+              </div>
+            </div>
+
+            {/* ── Middle: content – no overflow clipping, no fixed height ── */}
+            <div
+              style={{
+                padding: "28px 36px 24px",
+                background: "#ffffff",
+              }}
+            >
+              {items.length === 0 ? (
+                <p style={{ fontSize: 13, color: "#9ca3af", margin: 0 }}>
+                  暂无内容
+                </p>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  {items.map((item, i) => {
+                    if (item.type === "heading") {
+                      return (
+                        <p
+                          key={i}
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 700,
+                            color: "#111827",
+                            lineHeight: 1.55,
+                            margin: "0 0 10px 0",
+                            padding: 0,
+                          }}
+                        >
+                          {item.text}
+                        </p>
+                      );
+                    }
+                    if (item.type === "bullet") {
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            display: "flex",
+                            gap: 10,
+                            alignItems: "flex-start",
+                            marginBottom: 11,
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "#cbd5e1",
+                              fontSize: 18,
+                              lineHeight: 1.45,
+                              flexShrink: 0,
+                              fontWeight: 300,
+                              marginTop: 0,
+                            }}
+                          >
+                            ·
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13.5,
+                              color: "#374151",
+                              lineHeight: 1.72,
+                              wordBreak: "break-all",
+                            }}
+                          >
+                            {item.text}
+                          </span>
+                        </div>
+                      );
+                    }
+                    return (
+                      <p
+                        key={i}
+                        style={{
+                          fontSize: 13.5,
+                          color: "#374151",
+                          lineHeight: 1.78,
+                          margin: "0 0 11px 0",
+                          padding: 0,
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {item.text}
+                      </p>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ── Bottom: footer with logo – sits right below content ── */}
+            <div
+              style={{
+                padding: "14px 36px 24px",
+                borderTop: "1px solid #f3f4f6",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "#ffffff",
+                borderRadius: "0 0 20px 20px",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/Richology商标黑体.png"
+                alt="Richology"
+                style={{ height: 16, opacity: 0.28, objectFit: "contain" }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            gap: 12,
+            padding: "16px 24px",
+            borderTop: "1px solid #f3f4f6",
+            background: "#ffffff",
+          }}
+        >
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "transparent",
+              padding: "10px 0",
+              fontSize: 14,
+              color: "#6b7280",
+              cursor: "pointer",
+              fontFamily: CARD_FONT,
+            }}
+          >
+            取消
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            style={{
+              flex: 1,
+              borderRadius: 12,
+              border: "none",
+              background: isSaving ? "#9ca3af" : "#111827",
+              padding: "10px 0",
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#ffffff",
+              cursor: isSaving ? "default" : "pointer",
+              fontFamily: CARD_FONT,
+            }}
+          >
+            {isSaving ? "保存中…" : "保存图片"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const touchStartXRef = useRef(0);
@@ -42,7 +465,8 @@ export default function Home() {
   const [isLoadingActionExtraction, setIsLoadingActionExtraction] = useState(false);
   const [isLoadingViewValidation, setIsLoadingViewValidation] = useState(false);
   const [isLoadingIdeaSourceTracing, setIsLoadingIdeaSourceTracing] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<"idle" | "exporting" | "success">("idle");
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isLiteMode, setIsLiteMode] = useState(false);
   const [isLiteUnlocked, setIsLiteUnlocked] = useState(false);
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
@@ -50,6 +474,10 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<"card" | "immersive">("card");
   const [immersiveIndex, setImmersiveIndex] = useState(0);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
+  const [shareModal, setShareModal] = useState<ShareModalState>(null);
+  const [bookRecommendation, setBookRecommendation] = useState("");
+  const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false);
+  const [isBookShareModalOpen, setIsBookShareModalOpen] = useState(false);
 
   const toggleCard = (key: string) => {
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -97,6 +525,12 @@ export default function Home() {
     setViewMode("card");
     setImmersiveIndex(0);
     setSlideDir(null);
+    setShareModal(null);
+    setBookRecommendation("");
+    setIsGeneratingRecommendation(false);
+    setIsBookShareModalOpen(false);
+    setIsExportModalOpen(false);
+    setExportStatus("idle");
   };
 
   const processFile = (file: File | undefined | null) => {
@@ -106,18 +540,15 @@ export default function Home() {
       resetAllState();
       return;
     }
-
     const isValidType =
       file.type === "application/pdf" ||
       file.name.toLowerCase().endsWith(".epub");
-
     if (!isValidType) {
       setSelectedFile(null);
       setMessage("仅支持上传 PDF 或 EPUB 文件。");
       resetAllState();
       return;
     }
-
     setSelectedFile(file);
     setMessage("");
     resetAllState();
@@ -154,15 +585,12 @@ export default function Home() {
     try {
       setIsLoadingIdeaSourceTracing(true);
       setMessage("正在生成思想溯源...");
-
       const res = await fetch("/api/skills/idea-source-tracing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, bookSummary, viewMap }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         setIdeaSourceTracing(data.ideaSourceTracing || "");
         setMessage("分析完成");
@@ -183,15 +611,12 @@ export default function Home() {
     try {
       setIsLoadingViewValidation(true);
       setMessage("正在生成观点校验...");
-
       const res = await fetch("/api/skills/view-validation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, bookSummary, chapters }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         setCriticalExamination(data.viewValidation || "");
       }
@@ -212,15 +637,12 @@ export default function Home() {
     try {
       setIsLoadingActionExtraction(true);
       setMessage("正在生成行动提炼...");
-
       const res = await fetch("/api/skills/action-extraction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, bookSummary, chapters }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         setActionExtraction(data.actionExtraction || "");
       }
@@ -241,15 +663,12 @@ export default function Home() {
     try {
       setIsLoadingViewMap(true);
       setMessage("正在生成观点地图...");
-
       const res = await fetch("/api/skills/view-map", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, bookSummary, chapters }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         viewMapResult = data.viewMap || "";
         setViewMap(viewMapResult);
@@ -271,15 +690,12 @@ export default function Home() {
     try {
       setIsLoadingReadingGuide(true);
       setMessage("正在生成阅读指南...");
-
       const res = await fetch("/api/skills/reading-guide", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, bookSummary, chapters }),
       });
-
       const data = await res.json();
-
       if (data.success) {
         setReadingGuide(data.readingGuide || "");
       }
@@ -298,11 +714,8 @@ export default function Home() {
   const handleUnlock = async () => {
     setIsPaywallModalOpen(false);
     setIsLiteUnlocked(true);
-
-    // Capture current state values for the async chain
     const title = bookTitle;
     const currentChapters = chapters;
-
     let realSummary = "";
     try {
       setIsLoadingBookSummary(true);
@@ -322,48 +735,91 @@ export default function Home() {
     } finally {
       setIsLoadingBookSummary(false);
     }
-
-    // Step 2: kick off the full skill chain with the real summary
     fetchViewMap(title, realSummary, currentChapters);
   };
 
-  const handleExport = async () => {
+  const handleExport = async ({ format, structure, selectedSectionIds }: ExportParams) => {
     if (!bookTitle) return;
 
-    try {
-      setIsExporting(true);
+    // Build the full section map from current state
+    const allSections: ExportSection[] = [
+      { id: "bookSummary", label: "全书摘要" },
+      { id: "readingGuide", label: "阅读指南" },
+      { id: "viewMap", label: "观点地图" },
+      { id: "actionExtraction", label: "行动提炼" },
+      { id: "viewValidation", label: "观点校验" },
+      { id: "ideaSourceTracing", label: "思想溯源" },
+    ];
+    const contentMap: Record<string, string> = {
+      bookSummary,
+      readingGuide,
+      viewMap,
+      actionExtraction,
+      viewValidation: criticalExamination,
+      ideaSourceTracing,
+    };
+    const sections = allSections
+      .filter((s) => selectedSectionIds.includes(s.id) && contentMap[s.id]?.trim())
+      .map((s) => ({ id: s.id, title: s.label, content: contentMap[s.id] }));
 
+    try {
+      setExportStatus("exporting");
       const res = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: bookTitle,
-          bookSummary,
-          readingGuide,
-          viewMap,
-          actionExtraction,
-          viewValidation: criticalExamination,
-          ideaSourceTracing,
+          bookTitle,
+          fileType: selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub",
+          mode: isLiteMode && !isLiteUnlocked ? "lite" : "full",
+          format,
+          structure,
+          sections,
         }),
       });
-
       if (!res.ok) {
         alert("导出失败，请稍后重试。");
+        setExportStatus("idle");
         return;
       }
-
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${bookTitle}.zip`;
+      const safeTitle = bookTitle.replace(/[/\\:*?"<>|]/g, "-").trim();
+      a.download = `BookLeap-${safeTitle}-知识包.zip`;
       a.click();
       URL.revokeObjectURL(url);
+      setExportStatus("success");
     } catch (error) {
       console.error(error);
       alert("导出失败，请稍后重试。");
+      setExportStatus("idle");
+    }
+  };
+
+  const handleGenerateBookRecommendation = async () => {
+    if (!bookSummary) return;
+    // Reuse cached result if already generated for this book
+    if (bookRecommendation) {
+      setIsBookShareModalOpen(true);
+      return;
+    }
+    setIsGeneratingRecommendation(true);
+    try {
+      const res = await fetch("/api/skills/book-recommendation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: bookTitle, bookSummary, readingGuide }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setBookRecommendation(data.recommendation || "");
+        setIsBookShareModalOpen(true);
+      }
+    } catch (err) {
+      console.error("整书推荐生成失败:", err);
     } finally {
-      setIsExporting(false);
+      setIsGeneratingRecommendation(false);
     }
   };
 
@@ -372,24 +828,18 @@ export default function Home() {
       setMessage("请先选择一本 PDF 或 EPUB 电子书。");
       return;
     }
-
     try {
       setIsLoading(true);
       setMessage("正在上传文件...");
       resetAllState();
-
       let res: Response;
-
       try {
-        // Try Vercel Blob client upload (production)
         const { upload } = await import("@vercel/blob/client");
         const blob = await upload(selectedFile.name, selectedFile, {
           access: "public",
           handleUploadUrl: "/api/upload",
         });
-
         setMessage("上传成功，正在解析章节...");
-
         res = await fetch("/api/analyze", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -399,36 +849,28 @@ export default function Home() {
           }),
         });
       } catch {
-        // Blob not available (local dev) — fall back to direct FormData
         setMessage("正在上传并解析章节...");
-
         const formData = new FormData();
         formData.append("file", selectedFile);
-
         res = await fetch("/api/analyze", {
           method: "POST",
           body: formData,
         });
       }
-
       const data = await res.json();
-
       if (!data.success) {
         setMessage(data.error || "上传失败");
         return;
       }
-
       const title = data.title || "";
       const bookSummary = data.bookSummary || "";
       const chapters = data.chapters || [];
       const liteMode = data.mode === "lite";
-
       setMessage("文件解析成功，正在进入分析流程...");
       setBookTitle(title);
       setBookSummary(bookSummary);
       setChapters(chapters);
       setIsLiteMode(liteMode);
-
       fetchReadingGuide(title, bookSummary, chapters, !liteMode);
     } catch (error) {
       console.error(error);
@@ -438,31 +880,28 @@ export default function Home() {
     }
   };
 
+  // ── Render card ─────────────────────────────────────────────────────────────
   const renderCard = (
     key: string,
     label: string,
     content: string,
     isLoadingCard: boolean,
     loadingText: string,
-    sectionHasExpanded: boolean = false
+    sectionHasExpanded = false
   ) => {
     if (!isLoadingCard && !content) return null;
-
     const isExpanded = expandedCards[key] ?? false;
 
     const cardClassName = (() => {
       const base =
-        "shrink-0 w-[85vw] md:w-80 rounded-2xl bg-white border p-5 flex flex-col gap-3 snap-center transition-all duration-200";
-      if (isLoadingCard) {
-        return `${base} border-gray-100 shadow-sm cursor-default`;
-      }
-      if (isExpanded) {
-        return `${base} border-gray-300 shadow-lg scale-[1.015] cursor-pointer`;
-      }
-      if (sectionHasExpanded) {
-        return `${base} border-gray-100 shadow-sm opacity-40 cursor-pointer`;
-      }
-      return `${base} border-gray-100 shadow-sm cursor-pointer hover:shadow-md hover:border-gray-200 active:scale-[0.99]`;
+        "shrink-0 w-[82vw] md:w-72 rounded-2xl bg-white border p-5 flex flex-col gap-3 snap-center transition-all duration-200";
+      if (isLoadingCard)
+        return `${base} border-gray-100 shadow-card cursor-default`;
+      if (isExpanded)
+        return `${base} border-gray-200 shadow-card-hover scale-[1.012] cursor-pointer`;
+      if (sectionHasExpanded)
+        return `${base} border-gray-100 shadow-card opacity-40 cursor-pointer`;
+      return `${base} border-gray-100 shadow-card cursor-pointer hover:shadow-card-hover hover:border-gray-200 active:scale-[0.99]`;
     })();
 
     return (
@@ -473,29 +912,47 @@ export default function Home() {
         }}
         className={cardClassName}
       >
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 select-none">
-          {label}
-        </p>
+        {/* Label + share button */}
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 select-none">
+            {label}
+          </p>
+          {!isLoadingCard && content && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShareModal({ label, content, bookTitle });
+              }}
+              className="shrink-0 text-[10px] font-medium text-gray-400 hover:text-gray-700 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-0.5 transition-all select-none"
+            >
+              分享
+            </button>
+          )}
+        </div>
 
         {isLoadingCard ? (
-          <div className="space-y-2.5">
-            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-3/4" />
-            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-full" />
-            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-5/6" />
-            <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-2/3" />
-            <p className="text-[11px] text-gray-400 pt-1">{loadingText}</p>
+          <div className="space-y-2.5 pt-1">
+            <div className="h-2 bg-gray-100 rounded-full animate-pulse w-3/4" />
+            <div className="h-2 bg-gray-100 rounded-full animate-pulse w-full" />
+            <div className="h-2 bg-gray-100 rounded-full animate-pulse w-5/6" />
+            <div className="h-2 bg-gray-100 rounded-full animate-pulse w-2/3" />
+            <p className="text-[10px] text-gray-400 pt-0.5">{loadingText}</p>
           </div>
         ) : (
           <>
-            <div className={`relative overflow-hidden ${isExpanded ? "" : "max-h-24"}`}>
+            <div
+              className={`relative overflow-hidden ${isExpanded ? "" : "max-h-24"}`}
+            >
               <div className="md-prose">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                  {content}
+                </ReactMarkdown>
               </div>
               {!isExpanded && (
-                <div className="absolute bottom-0 inset-x-0 h-8 bg-gradient-to-t from-white to-transparent pointer-events-none" />
+                <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none" />
               )}
             </div>
-            <p className="text-[11px] text-gray-400 text-right select-none pt-1">
+            <p className="text-[10px] text-gray-400 text-right select-none">
               {isExpanded ? "收起 ↑" : "展开阅读 ↓"}
             </p>
           </>
@@ -503,6 +960,8 @@ export default function Home() {
       </div>
     );
   };
+
+  // ── Derived state ───────────────────────────────────────────────────────────
   const beforeReadingExpanded = ["bookSummary", "readingGuide", "viewMap"].some(
     (k) => expandedCards[k]
   );
@@ -524,14 +983,13 @@ export default function Home() {
     renderCard("ideaSourceTracing", "思想溯源", ideaSourceTracing, isLoadingIdeaSourceTracing, "正在生成思想溯源...", afterReadingExpanded),
   ].filter(Boolean);
 
-  // Immersive mode: flat ordered card list
   const allImmersiveCardDefs: ImmersiveCardDef[] = [
-    { key: "bookSummary",        label: "全书摘要", content: bookSummary,        isLoading: isLoadingBookSummary,        loadingText: "正在生成全书摘要..." },
-    { key: "readingGuide",       label: "阅读指南", content: readingGuide,       isLoading: isLoadingReadingGuide,       loadingText: "正在生成阅读指南..." },
-    { key: "viewMap",            label: "观点地图", content: viewMap,            isLoading: isLoadingViewMap,            loadingText: "正在生成观点地图..." },
-    { key: "actionExtraction",   label: "行动提炼", content: actionExtraction,   isLoading: isLoadingActionExtraction,   loadingText: "正在生成行动提炼..." },
-    { key: "criticalExamination",label: "观点校验", content: criticalExamination,isLoading: isLoadingViewValidation,     loadingText: "正在生成观点校验..." },
-    { key: "ideaSourceTracing",  label: "思想溯源", content: ideaSourceTracing,  isLoading: isLoadingIdeaSourceTracing,  loadingText: "正在生成思想溯源..." },
+    { key: "bookSummary",         label: "全书摘要", content: bookSummary,         isLoading: isLoadingBookSummary,        loadingText: "正在生成全书摘要..." },
+    { key: "readingGuide",        label: "阅读指南", content: readingGuide,        isLoading: isLoadingReadingGuide,       loadingText: "正在生成阅读指南..." },
+    { key: "viewMap",             label: "观点地图", content: viewMap,             isLoading: isLoadingViewMap,            loadingText: "正在生成观点地图..." },
+    { key: "actionExtraction",    label: "行动提炼", content: actionExtraction,    isLoading: isLoadingActionExtraction,   loadingText: "正在生成行动提炼..." },
+    { key: "criticalExamination", label: "观点校验", content: criticalExamination, isLoading: isLoadingViewValidation,     loadingText: "正在生成观点校验..." },
+    { key: "ideaSourceTracing",   label: "思想溯源", content: ideaSourceTracing,   isLoading: isLoadingIdeaSourceTracing,  loadingText: "正在生成思想溯源..." },
   ];
 
   const immersiveCardList = allImmersiveCardDefs.filter((card) => {
@@ -562,94 +1020,109 @@ export default function Home() {
     }
   };
 
+  const isAnalyzing =
+    isLoading ||
+    isLoadingBookSummary ||
+    isLoadingReadingGuide ||
+    isLoadingViewMap ||
+    isLoadingActionExtraction ||
+    isLoadingViewValidation ||
+    isLoadingIdeaSourceTracing;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-10">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-10 text-center">
-          <h1 className="text-4xl font-bold tracking-tight mb-2">书跃 · BookLeap</h1>
-          <p className="text-lg text-gray-500 mb-4">从好书中完成认知跃迁</p>
-          <p className="text-gray-400 max-w-xl mx-auto leading-7 text-sm">
-            上传电子书，将书籍转化为结构化的知识卡片，提升知识获取的效率和质量
-          </p>
-        </header>
+    <>
+      <main className="min-h-screen bg-[#f7f7f8] px-5 py-12 md:px-8">
+        <div className="mx-auto max-w-4xl">
 
-        <section className="bg-white shadow-sm rounded-2xl p-8 border border-gray-100 mb-10">
-          {/* Hidden native file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.epub,application/pdf"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-
-          {/* Drop zone */}
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            className={`mb-4 rounded-xl border-2 border-dashed px-6 py-10 text-center cursor-pointer transition-all duration-200 select-none ${
-              isDragging
-                ? "border-gray-500 bg-gray-50 scale-[1.01]"
-                : selectedFile
-                ? "border-gray-300 bg-gray-50 hover:border-gray-400"
-                : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            {isDragging ? (
-              <>
-                <p className="text-2xl mb-2">📂</p>
-                <p className="text-sm font-medium text-gray-600">松开即可上传</p>
-              </>
-            ) : selectedFile ? (
-              <>
-                <p className="text-2xl mb-2">📄</p>
-                <p className="text-sm font-semibold text-gray-800 break-all">
-                  {selectedFile.name}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">点击重新选择或拖入新文件</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl mb-2">📥</p>
-                <p className="text-sm font-medium text-gray-600 mb-1">
-                  点击选择文件，或将文件拖入此区域
-                </p>
-                <p className="text-xs text-gray-400">支持 EPUB / PDF</p>
-              </>
-            )}
-          </div>
-
-          {/* Helper hints */}
-          <div className="mb-5 space-y-1">
-            <p className="text-xs text-gray-400">
-              ✦ 推荐使用 EPUB 文件，可获得完整六项结构化分析
+          {/* ── Header ── */}
+          <header className="mb-12 text-center">
+            <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white border border-gray-200 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
+              <span className="text-gray-400">✦</span> AI 驱动的结构化书籍分析平台
+            </div>
+            <h1 className="text-[2.25rem] font-bold tracking-tight text-gray-950 mb-3 leading-tight">
+              书跃 · BookLeap
+            </h1>
+            <p className="text-[1rem] text-gray-500 mb-2 tracking-wide">
+              从好书中完成认知跃迁
             </p>
-            <p className="text-xs text-gray-400">
-              ✦ 较大的 PDF 可能上传失败，建议优先使用 EPUB 或压缩后的 PDF
+            <p className="text-sm text-gray-400 max-w-sm mx-auto leading-relaxed">
+              上传电子书，获取结构化的知识卡片，提升学习的效率和质量
             </p>
-          </div>
+          </header>
 
-          <button
-            onClick={handleAnalyze}
-            disabled={isLoading}
-            className="w-full bg-black text-white py-3 rounded-xl hover:bg-gray-800 transition disabled:opacity-50 font-medium"
-          >
-            {isLoading ? "解析中..." : "开始分析"}
-          </button>
+          {/* ── Upload section ── */}
+          <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-7 mb-10">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.epub,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
 
-          {message && (() => {
-            const isAnalyzing =
-              isLoading ||
-              isLoadingBookSummary ||
-              isLoadingReadingGuide ||
-              isLoadingViewMap ||
-              isLoadingActionExtraction ||
-              isLoadingViewValidation ||
-              isLoadingIdeaSourceTracing;
+            {/* Drop zone */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`mb-5 rounded-xl border-2 border-dashed px-6 py-9 text-center cursor-pointer transition-all duration-200 select-none ${
+                isDragging
+                  ? "border-gray-400 bg-gray-50 scale-[1.01]"
+                  : selectedFile
+                  ? "border-gray-200 bg-gray-50 hover:border-gray-300"
+                  : "border-gray-200 hover:border-gray-300 hover:bg-gray-50/60"
+              }`}
+            >
+              {isDragging ? (
+                <>
+                  <p className="text-xl mb-2 opacity-60">📂</p>
+                  <p className="text-sm font-medium text-gray-600">松开即可上传</p>
+                </>
+              ) : selectedFile ? (
+                <>
+                  <p className="text-xl mb-2 opacity-60">📄</p>
+                  <p className="text-sm font-semibold text-gray-800 break-all">
+                    {selectedFile.name}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    点击重新选择或拖入新文件
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xl mb-2 opacity-50">📥</p>
+                  <p className="text-sm font-medium text-gray-600 mb-1">
+                    点击选择，或将文件拖入此处
+                  </p>
+                  <p className="text-xs text-gray-400">支持 EPUB / PDF</p>
+                </>
+              )}
+            </div>
 
-            return (
+            {/* Hints */}
+            <div className="mb-5 space-y-1.5">
+              <p className="text-xs text-gray-400 flex items-start gap-1.5">
+                <span className="shrink-0 mt-px">✦</span>
+                推荐使用 EPUB 文件，可获得完整六项结构化分析
+              </p>
+              <p className="text-xs text-gray-400 flex items-start gap-1.5">
+                <span className="shrink-0 mt-px">✦</span>
+                较大的 PDF 可能上传失败，建议优先使用 EPUB 或压缩后的 PDF
+              </p>
+            </div>
+
+            <button
+              onClick={handleAnalyze}
+              disabled={isLoading}
+              className="w-full bg-gray-950 text-white py-3 rounded-xl hover:bg-gray-800 transition-all duration-150 disabled:opacity-50 font-medium text-sm tracking-wide"
+            >
+              {isLoading ? "解析中…" : "开始分析"}
+            </button>
+
+            {/* Status message */}
+            {message && (
               <div
                 className={`mt-4 rounded-xl px-4 py-3 text-sm border transition-colors duration-300 ${
                   isAnalyzing
@@ -672,275 +1145,395 @@ export default function Home() {
                   {message}
                 </span>
               </div>
-            );
-          })()}
-        </section>
+            )}
+          </section>
 
-        {bookTitle && (
-          <>
-            {/* Book title bar */}
-            <div className="flex items-center justify-between gap-4 mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 truncate">{bookTitle}</h2>
-              {(!isLiteMode || isLiteUnlocked) && (
-                <button
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
-                >
-                  {isExporting ? "导出中..." : "导出 Obsidian 知识包"}
-                </button>
-              )}
-            </div>
-
-            {/* View mode toggle */}
-            {immersiveCardList.length > 0 && (
-              <div className="flex items-center mb-8">
-                <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
-                  <button
-                    onClick={() => setViewMode("card")}
-                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
-                      viewMode === "card"
-                        ? "bg-black text-white shadow-sm"
-                        : "text-gray-500 hover:text-gray-800"
-                    }`}
-                  >
-                    卡片模式
-                  </button>
-                  <button
-                    onClick={() => {
-                      setViewMode("immersive");
-                      setImmersiveIndex(0);
-                      setSlideDir(null);
-                    }}
-                    className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
-                      viewMode === "immersive"
-                        ? "bg-black text-white shadow-sm"
-                        : "text-gray-500 hover:text-gray-800"
-                    }`}
-                  >
-                    沉浸阅读
-                  </button>
+          {/* ── Results ── */}
+          {bookTitle && (
+            <>
+              {/* Title bar */}
+              <div className="flex items-center justify-between gap-4 mb-5">
+                <h2 className="text-lg font-semibold text-gray-900 truncate leading-snug">
+                  {bookTitle}
+                </h2>
+                <div className="flex items-center gap-2 shrink-0">
+                  {bookSummary && (
+                    <button
+                      onClick={handleGenerateBookRecommendation}
+                      disabled={isGeneratingRecommendation}
+                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {isGeneratingRecommendation ? (
+                        <>
+                          <span className="relative flex h-1.5 w-1.5 shrink-0">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-75" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-gray-500" />
+                          </span>
+                          生成中…
+                        </>
+                      ) : (
+                        "生成整书分享卡"
+                      )}
+                    </button>
+                  )}
+                  {(!isLiteMode || isLiteUnlocked) && (
+                    <button
+                      onClick={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
+                      disabled={exportStatus === "exporting"}
+                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
+                    >
+                      {exportStatus === "exporting" ? "导出中…" : "导出知识包"}
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
 
-            {/* PDF Lite mode info banner (locked) */}
-            {isLiteMode && !isLiteUnlocked && (
-              <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
-                <span className="mt-0.5 text-amber-500 text-base shrink-0">ℹ</span>
-                <p className="text-sm leading-6 text-amber-800">
-                  <strong>PDF 简化分析模式</strong>
-                  ：当前仅提供基础摘要与阅读引导。如需完整结构化分析，建议优先使用 EPUB 文件，或解锁当前 PDF 的完整版分析。
-                </p>
-              </div>
-            )}
+              {/* View mode toggle */}
+              {immersiveCardList.length > 0 && (
+                <div className="flex items-center mb-8">
+                  <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
+                    <button
+                      onClick={() => setViewMode("card")}
+                      className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
+                        viewMode === "card"
+                          ? "bg-gray-950 text-white shadow-sm"
+                          : "text-gray-500 hover:text-gray-800"
+                      }`}
+                    >
+                      卡片模式
+                    </button>
+                    <button
+                      onClick={() => {
+                        setViewMode("immersive");
+                        setImmersiveIndex(0);
+                        setSlideDir(null);
+                      }}
+                      className={`rounded-lg px-3.5 py-1.5 text-xs font-medium transition-all ${
+                        viewMode === "immersive"
+                          ? "bg-gray-950 text-white shadow-sm"
+                          : "text-gray-500 hover:text-gray-800"
+                      }`}
+                    >
+                      沉浸阅读
+                    </button>
+                  </div>
+                </div>
+              )}
 
-            {/* Paywall card */}
-            {isLiteMode && !isLiteUnlocked && (
-              <div className="mb-8 rounded-2xl border border-gray-200 bg-white shadow-sm p-6">
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">
-                  解锁完整版分析
-                </p>
-                <p className="text-base font-semibold text-gray-900 mb-4">
-                  解锁后可获得以下深度分析内容
-                </p>
-                <ul className="space-y-2 mb-5">
-                  {["观点地图", "行动提炼", "观点校验", "思想溯源", "Obsidian 知识包导出"].map(
-                    (feature) => (
-                      <li key={feature} className="flex items-center gap-2 text-sm text-gray-700">
-                        <span className="text-green-500 font-bold">✓</span>
+              {/* Lite mode info banner */}
+              {isLiteMode && !isLiteUnlocked && (
+                <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+                  <span className="mt-0.5 text-amber-400 text-sm shrink-0">ℹ</span>
+                  <p className="text-sm leading-6 text-amber-800">
+                    <strong>PDF 简化分析模式</strong>
+                    ：当前仅提供基础摘要与阅读引导。如需完整结构化分析，建议优先使用 EPUB 文件，或解锁当前 PDF 的完整版分析。
+                  </p>
+                </div>
+              )}
+
+              {/* Paywall card */}
+              {isLiteMode && !isLiteUnlocked && (
+                <div className="mb-8 rounded-2xl border border-gray-100 bg-white shadow-card p-6">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
+                    解锁完整版分析
+                  </p>
+                  <p className="text-base font-semibold text-gray-900 mb-4">
+                    解锁后可获得以下深度分析内容
+                  </p>
+                  <ul className="space-y-2 mb-5">
+                    {[
+                      "观点地图",
+                      "行动提炼",
+                      "观点校验",
+                      "思想溯源",
+                      "Obsidian 知识包导出",
+                    ].map((feature) => (
+                      <li
+                        key={feature}
+                        className="flex items-center gap-2 text-sm text-gray-700"
+                      >
+                        <span className="text-emerald-500 font-bold">✓</span>
                         {feature}
                       </li>
-                    )
-                  )}
-                </ul>
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-2xl font-bold text-gray-900">
-                    ¥9.9
-                    <span className="text-sm font-normal text-gray-400 ml-1">/ 本</span>
-                  </span>
-                  <button
-                    onClick={() => setIsPaywallModalOpen(true)}
-                    className="rounded-xl bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
-                  >
-                    立即解锁完整版
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── Immersive mode ── */}
-            {viewMode === "immersive" && immersiveCardList.length > 0 && currentImmersiveCard && (
-              <div
-                className="mx-auto max-w-2xl mb-10"
-                onTouchStart={handleImmersiveTouchStart}
-                onTouchEnd={handleImmersiveTouchEnd}
-              >
-                {/* Progress indicator */}
-                <p className="text-center text-xs text-gray-400 mb-4 select-none tracking-wider">
-                  {safeImmersiveIndex + 1} / {immersiveCardList.length}
-                </p>
-
-                {/* Card */}
-                <div
-                  key={safeImmersiveIndex}
-                  className={`rounded-2xl bg-white border border-gray-100 shadow-sm p-8 ${
-                    slideDir === "left"
-                      ? "animate-slide-from-right"
-                      : slideDir === "right"
-                      ? "animate-slide-from-left"
-                      : ""
-                  }`}
-                >
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-5">
-                    {currentImmersiveCard.label}
-                  </p>
-                  {currentImmersiveCard.isLoading ? (
-                    <div className="space-y-3">
-                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-3/4" />
-                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-full" />
-                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-5/6" />
-                      <div className="h-2.5 bg-gray-100 rounded-full animate-pulse w-2/3" />
-                      <p className="text-xs text-gray-400 pt-1">{currentImmersiveCard.loadingText}</p>
-                    </div>
-                  ) : (
-                    <div className="md-prose">
-                      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                        {currentImmersiveCard.content}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                </div>
-
-                {/* Navigation row */}
-                <div className="flex items-center justify-between mt-6">
-                  <button
-                    onClick={() => navigateImmersive("prev")}
-                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition active:scale-[0.97] select-none"
-                  >
-                    ← 上一篇
-                  </button>
-
-                  {/* Dot indicators */}
-                  <div className="flex items-center gap-1.5">
-                    {immersiveCardList.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          setSlideDir(i > safeImmersiveIndex ? "left" : "right");
-                          setImmersiveIndex(i);
-                        }}
-                        className={`h-1.5 rounded-full transition-all duration-200 ${
-                          i === safeImmersiveIndex
-                            ? "w-4 bg-gray-800"
-                            : "w-1.5 bg-gray-300 hover:bg-gray-400"
-                        }`}
-                      />
                     ))}
+                  </ul>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-2xl font-bold text-gray-900">
+                      ¥9.9
+                      <span className="text-sm font-normal text-gray-400 ml-1">
+                        / 本
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => setIsPaywallModalOpen(true)}
+                      className="rounded-xl bg-gray-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
+                    >
+                      立即解锁完整版
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() => navigateImmersive("next")}
-                    className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition active:scale-[0.97] select-none"
-                  >
-                    下一篇 →
-                  </button>
                 </div>
+              )}
 
-                {/* Keyboard hint */}
-                <p className="text-center text-[11px] text-gray-300 mt-3 select-none hidden md:block">
-                  使用键盘 ← → 方向键切换
-                </p>
-              </div>
-            )}
-
-            {/* ── Card mode ── */}
-            {viewMode === "card" && (
-              <>
-                {/* 阅读前 section */}
-                {beforeReadingCards.length > 0 && (
-                  <div className="mb-10">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
-                      阅读前
-                    </p>
-                    <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
-                      {beforeReadingCards}
+              {/* ── Immersive mode ── */}
+              {viewMode === "immersive" &&
+                immersiveCardList.length > 0 &&
+                currentImmersiveCard && (
+                  <div
+                    className="mx-auto max-w-xl mb-10"
+                    onTouchStart={handleImmersiveTouchStart}
+                    onTouchEnd={handleImmersiveTouchEnd}
+                  >
+                    {/* Progress pill */}
+                    <div className="flex items-center justify-center mb-5">
+                      <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-white border border-gray-200 shadow-sm">
+                        <span className="text-[11px] font-semibold text-gray-800 tabular-nums">
+                          {safeImmersiveIndex + 1}
+                        </span>
+                        <span className="text-[11px] text-gray-300">/</span>
+                        <span className="text-[11px] text-gray-400 tabular-nums">
+                          {immersiveCardList.length}
+                        </span>
+                        <span className="text-[11px] text-gray-400 ml-0.5">
+                          {currentImmersiveCard.label}
+                        </span>
+                      </div>
                     </div>
+
+                    {/* Card */}
+                    <div
+                      key={safeImmersiveIndex}
+                      className={`rounded-2xl bg-white border border-gray-100 shadow-card p-8 md:p-10 ${
+                        slideDir === "left"
+                          ? "animate-slide-from-right"
+                          : slideDir === "right"
+                          ? "animate-slide-from-left"
+                          : ""
+                      }`}
+                    >
+                      {/* Card top row */}
+                      <div className="flex items-center justify-between mb-6">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                          {currentImmersiveCard.label}
+                        </p>
+                        {!currentImmersiveCard.isLoading &&
+                          currentImmersiveCard.content && (
+                            <button
+                              onClick={() =>
+                                setShareModal({
+                                  label: currentImmersiveCard.label,
+                                  content: currentImmersiveCard.content,
+                                  bookTitle,
+                                })
+                              }
+                              className="text-[10px] font-medium text-gray-400 hover:text-gray-700 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-0.5 transition-all select-none"
+                            >
+                              分享
+                            </button>
+                          )}
+                      </div>
+
+                      {currentImmersiveCard.isLoading ? (
+                        <div className="space-y-3">
+                          <div className="h-2 bg-gray-100 rounded-full animate-pulse w-3/4" />
+                          <div className="h-2 bg-gray-100 rounded-full animate-pulse w-full" />
+                          <div className="h-2 bg-gray-100 rounded-full animate-pulse w-5/6" />
+                          <div className="h-2 bg-gray-100 rounded-full animate-pulse w-2/3" />
+                          <p className="text-xs text-gray-400 pt-1">
+                            {currentImmersiveCard.loadingText}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="md-prose">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkBreaks]}
+                          >
+                            {currentImmersiveCard.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Navigation row */}
+                    <div className="flex items-center justify-between mt-5">
+                      <button
+                        onClick={() => navigateImmersive("prev")}
+                        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
+                      >
+                        ← 上一篇
+                      </button>
+
+                      {/* Dot indicators */}
+                      <div className="flex items-center gap-1.5">
+                        {immersiveCardList.map((_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => {
+                              setSlideDir(
+                                i > safeImmersiveIndex ? "left" : "right"
+                              );
+                              setImmersiveIndex(i);
+                            }}
+                            className={`h-1.5 rounded-full transition-all duration-200 ${
+                              i === safeImmersiveIndex
+                                ? "w-4 bg-gray-800"
+                                : "w-1.5 bg-gray-300 hover:bg-gray-400"
+                            }`}
+                          />
+                        ))}
+                      </div>
+
+                      <button
+                        onClick={() => navigateImmersive("next")}
+                        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
+                      >
+                        下一篇 →
+                      </button>
+                    </div>
+
+                    {/* Keyboard hint */}
+                    <p className="text-center text-[10px] text-gray-300 mt-3 select-none hidden md:block">
+                      使用键盘 ← → 方向键切换
+                    </p>
                   </div>
                 )}
 
-                {/* 阅读后 section */}
-                {(!isLiteMode || isLiteUnlocked) && afterReadingCards.length > 0 && (
-                  <div className="mb-10">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 mb-4">
-                      阅读后
-                    </p>
-                    <div className="flex items-start overflow-x-auto gap-4 pb-4 -mx-6 px-6 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
-                      {afterReadingCards}
+              {/* ── Card mode ── */}
+              {viewMode === "card" && (
+                <>
+                  {beforeReadingCards.length > 0 && (
+                    <div className="mb-10">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-4">
+                        阅读前
+                      </p>
+                      <div className="flex items-start overflow-x-auto gap-3 pb-4 -mx-5 px-5 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                        {beforeReadingCards}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
+                  )}
 
-        {/* Payment modal */}
-        {isPaywallModalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setIsPaywallModalOpen(false);
-            }}
-          >
-            <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl p-7 flex flex-col items-center gap-5">
-              <div className="w-full">
-                <p className="text-lg font-semibold text-gray-900 mb-1">支付解锁完整版分析</p>
-                <p className="text-sm text-gray-500">请使用微信扫码支付 ¥9.9</p>
-              </div>
+                  {(!isLiteMode || isLiteUnlocked) &&
+                    afterReadingCards.length > 0 && (
+                      <div className="mb-10">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-4">
+                          阅读后
+                        </p>
+                        <div className="flex items-start overflow-x-auto gap-3 pb-4 -mx-5 px-5 md:mx-0 md:px-0 snap-x snap-mandatory md:snap-none">
+                          {afterReadingCards}
+                        </div>
+                      </div>
+                    )}
+                </>
+              )}
+            </>
+          )}
 
-              {/* QR code */}
-              <div className="rounded-xl border border-gray-100 p-3 bg-gray-50">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/wechat-pay-qrcode.jpg"
-                  alt="微信支付二维码"
-                  className="w-44 h-44 object-contain"
-                />
-              </div>
+          {/* Footer */}
+          <footer className="mt-20 mb-4 flex flex-col items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/Richology商标黑体.png"
+              alt="Richology"
+              className="h-7 w-auto object-contain opacity-40"
+            />
+          </footer>
+        </div>
+      </main>
 
-              <p className="text-xs text-gray-400 text-center">
-                支付完成后，点击下方按钮继续
+      {/* ── Payment modal ── */}
+      {isPaywallModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-6"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsPaywallModalOpen(false);
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl p-7 flex flex-col items-center gap-5">
+            <div className="w-full">
+              <p className="text-lg font-semibold text-gray-900 mb-1">
+                支付解锁完整版分析
               </p>
-
-              <div className="w-full flex flex-col gap-2">
-                <button
-                  onClick={handleUnlock}
-                  className="w-full rounded-xl bg-black py-3 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
-                >
-                  我已支付，继续解锁
-                </button>
-                <button
-                  onClick={() => setIsPaywallModalOpen(false)}
-                  className="w-full rounded-xl py-2.5 text-sm text-gray-500 hover:text-gray-700 transition"
-                >
-                  暂不解锁
-                </button>
-              </div>
+              <p className="text-sm text-gray-500">
+                请使用微信扫码支付 ¥9.9
+              </p>
+            </div>
+            <div className="rounded-xl border border-gray-100 p-3 bg-gray-50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/wechat-pay-qrcode.jpg"
+                alt="微信支付二维码"
+                className="w-44 h-44 object-contain"
+              />
+            </div>
+            <p className="text-xs text-gray-400 text-center">
+              支付完成后，点击下方按钮继续
+            </p>
+            <div className="w-full flex flex-col gap-2">
+              <button
+                onClick={handleUnlock}
+                className="w-full rounded-xl bg-gray-950 py-3 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
+              >
+                我已支付，继续解锁
+              </button>
+              <button
+                onClick={() => setIsPaywallModalOpen(false)}
+                className="w-full rounded-xl py-2.5 text-sm text-gray-500 hover:text-gray-700 transition"
+              >
+                暂不解锁
+              </button>
             </div>
           </div>
-        )}
-        {/* Footer */}
-        <footer className="mt-20 mb-4 flex flex-col items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/Richology商标黑体.png"
-            alt="Richology"
-            className="h-8 w-auto object-contain"
+        </div>
+      )}
+
+      {/* ── Per-card share modal ── */}
+      {shareModal && (
+        <ShareModal data={shareModal} onClose={() => setShareModal(null)} />
+      )}
+
+      {/* ── Export format modal ── */}
+      {isExportModalOpen && (() => {
+        const _sectionDefs: ExportSection[] = [
+          { id: "bookSummary", label: "全书摘要" },
+          { id: "readingGuide", label: "阅读指南" },
+          { id: "viewMap", label: "观点地图" },
+          { id: "actionExtraction", label: "行动提炼" },
+          { id: "viewValidation", label: "观点校验" },
+          { id: "ideaSourceTracing", label: "思想溯源" },
+        ];
+        const _contentMap: Record<string, string> = {
+          bookSummary,
+          readingGuide,
+          viewMap,
+          actionExtraction,
+          viewValidation: criticalExamination,
+          ideaSourceTracing,
+        };
+        const availableSections = _sectionDefs.filter(
+          (s) => _contentMap[s.id]?.trim().length > 0
+        );
+        return (
+          <ExportModal
+            availableSections={availableSections}
+            onExport={handleExport}
+            onClose={() => { setIsExportModalOpen(false); setExportStatus("idle"); }}
+            exportStatus={exportStatus}
+            onRestart={() => setExportStatus("idle")}
           />
-        </footer>
-      </div>
-    </main>
+        );
+      })()}
+
+      {/* ── Book-level share modal ── */}
+      {isBookShareModalOpen && bookRecommendation && (
+        <BookShareModal
+          bookTitle={
+            bookTitle ||
+            selectedFile?.name.replace(/\.(epub|pdf)$/i, "") ||
+            "未知书名"
+          }
+          recommendation={bookRecommendation}
+          onClose={() => setIsBookShareModalOpen(false)}
+        />
+      )}
+    </>
   );
 }
-
