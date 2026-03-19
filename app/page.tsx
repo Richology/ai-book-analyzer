@@ -33,6 +33,44 @@ type ShareModalState = {
 } | null;
 
 // ── Share card content helpers ─────────────────────────────────────────────────
+
+// ── Recent history (localStorage) ─────────────────────────────────────────────
+const HISTORY_KEY = "bookleap_recent_history";
+const HISTORY_MAX = 10;
+
+type HistoryRecord = {
+  id: string;
+  title: string;
+  fileType: string;
+  mode: "full" | "lite";
+  createdAt: string;
+  bookSummary: string;
+  readingGuide: string;
+  viewMap: string;
+  actionExtraction: string;
+  viewValidation: string;
+  ideaSourceTracing: string;
+  bookRecommendation: string;
+};
+
+function loadHistory(): HistoryRecord[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(records: HistoryRecord[]) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, HISTORY_MAX)));
+  } catch { /* quota exceeded – silently ignore */ }
+}
+
+// ── Share card content helpers (continued) ────────────────────────────────────
 type ShareItem = { type: "heading" | "bullet" | "para"; text: string };
 
 function cleanInlineMd(s: string): string {
@@ -478,6 +516,74 @@ export default function Home() {
   const [bookRecommendation, setBookRecommendation] = useState("");
   const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false);
   const [isBookShareModalOpen, setIsBookShareModalOpen] = useState(false);
+  const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
+  const [historyToast, setHistoryToast] = useState("");
+
+  const isAnalyzing =
+    isLoading ||
+    isLoadingBookSummary ||
+    isLoadingReadingGuide ||
+    isLoadingViewMap ||
+    isLoadingActionExtraction ||
+    isLoadingViewValidation ||
+    isLoadingIdeaSourceTracing;
+
+  // Load history on mount
+  useEffect(() => {
+    setRecentHistory(loadHistory());
+  }, []);
+
+  // Save to history when analysis completes
+  useEffect(() => {
+    if (message !== "分析完成" || isAnalyzing || !bookTitle) return;
+    const fileType = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
+    const record: HistoryRecord = {
+      id: `${bookTitle}-${fileType}`,
+      title: bookTitle,
+      fileType,
+      mode: isLiteMode && !isLiteUnlocked ? "lite" : "full",
+      createdAt: new Date().toISOString(),
+      bookSummary,
+      readingGuide,
+      viewMap,
+      actionExtraction,
+      viewValidation: criticalExamination,
+      ideaSourceTracing,
+      bookRecommendation,
+    };
+    const prev = loadHistory().filter((r) => r.id !== record.id);
+    const next = [record, ...prev].slice(0, HISTORY_MAX);
+    saveHistory(next);
+    setRecentHistory(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, isAnalyzing]);
+
+  const restoreFromHistory = (record: HistoryRecord) => {
+    if (isAnalyzing) {
+      setHistoryToast("当前正在分析，请稍后查看历史记录");
+      setTimeout(() => setHistoryToast(""), 2500);
+      return;
+    }
+    resetAllState();
+    setSelectedFile(null);
+    setBookTitle(record.title);
+    setBookSummary(record.bookSummary);
+    setReadingGuide(record.readingGuide);
+    setViewMap(record.viewMap);
+    setActionExtraction(record.actionExtraction);
+    setCriticalExamination(record.viewValidation);
+    setIdeaSourceTracing(record.ideaSourceTracing);
+    setBookRecommendation(record.bookRecommendation);
+    setIsLiteMode(record.mode === "lite");
+    setIsLiteUnlocked(record.mode === "full");
+    setMessage("分析完成");
+  };
+
+  const deleteHistoryRecord = (id: string) => {
+    const next = loadHistory().filter((r) => r.id !== id);
+    saveHistory(next);
+    setRecentHistory(next);
+  };
 
   const toggleCard = (key: string) => {
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1032,15 +1138,6 @@ export default function Home() {
     }
   };
 
-  const isAnalyzing =
-    isLoading ||
-    isLoadingBookSummary ||
-    isLoadingReadingGuide ||
-    isLoadingViewMap ||
-    isLoadingActionExtraction ||
-    isLoadingViewValidation ||
-    isLoadingIdeaSourceTracing;
-
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
@@ -1133,32 +1230,171 @@ export default function Home() {
               {isLoading ? "解析中…" : "开始分析"}
             </button>
 
-            {/* Status message */}
-            {message && (
-              <div
-                className={`mt-4 rounded-xl px-4 py-3 text-sm border transition-colors duration-300 ${
-                  isAnalyzing
-                    ? "bg-gray-50 border-gray-200 text-gray-700"
-                    : message === "分析完成"
-                    ? "bg-emerald-50 border-emerald-100 text-emerald-700"
-                    : "bg-gray-50 border-gray-100 text-gray-600"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  {isAnalyzing && (
-                    <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-75" />
-                      <span className="relative inline-flex h-2 w-2 rounded-full bg-gray-500" />
-                    </span>
+            {/* Status banner + progress tracker */}
+            {message && (() => {
+              const isError =
+                message.includes("失败") ||
+                message.includes("仅支持") ||
+                message.includes("请先选择");
+              const isSuccess = message === "分析完成" && !isAnalyzing;
+
+              const bannerClass = isError
+                ? "bg-red-50/80 border-red-200/60 text-red-600"
+                : isSuccess
+                ? "bg-emerald-50/80 border-emerald-200/60 text-emerald-700"
+                : isAnalyzing
+                ? "bg-gray-50 border-gray-200 text-gray-700"
+                : "bg-gray-50 border-gray-100 text-gray-500";
+
+              /* ── 6-step progress definitions (real generation order) ── */
+              const steps: { label: string; loading: boolean; done: boolean }[] = [
+                { label: "全书摘要", loading: isLoadingBookSummary,        done: !!bookSummary },
+                { label: "阅读指南", loading: isLoadingReadingGuide,       done: !!readingGuide },
+                { label: "观点地图", loading: isLoadingViewMap,            done: !!viewMap },
+                { label: "行动提炼", loading: isLoadingActionExtraction,   done: !!actionExtraction },
+                { label: "观点校验", loading: isLoadingViewValidation,     done: !!criticalExamination },
+                { label: "思想溯源", loading: isLoadingIdeaSourceTracing,  done: !!ideaSourceTracing },
+              ];
+              const showTracker =
+                !isError && steps.some((s) => s.loading || s.done);
+              /* In lite mode (not unlocked), only show the first 2 steps */
+              const visibleSteps =
+                isLiteMode && !isLiteUnlocked ? steps.slice(0, 2) : steps;
+
+              return (
+                <div
+                  className={`mt-4 rounded-xl px-4 py-3 text-sm border transition-all duration-300 ${bannerClass}`}
+                >
+                  {/* Status text row */}
+                  <span className="flex items-center gap-2.5">
+                    {isAnalyzing && (
+                      <span className="relative flex h-2 w-2 shrink-0">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-gray-400 animate-status-pulse" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-gray-500" />
+                      </span>
+                    )}
+                    {isSuccess && (
+                      <span className="flex items-center justify-center h-4 w-4 rounded-full bg-emerald-100 shrink-0">
+                        <svg className="h-2.5 w-2.5 text-emerald-600" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M2.5 6.5L5 9l4.5-6" />
+                        </svg>
+                      </span>
+                    )}
+                    {isError && (
+                      <span className="flex items-center justify-center h-4 w-4 rounded-full bg-red-100 shrink-0">
+                        <svg className="h-2.5 w-2.5 text-red-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="6" cy="6" r="4.5" />
+                          <path d="M6 4v2.5" />
+                          <circle cx="6" cy="8.5" r="0.5" fill="currentColor" stroke="none" />
+                        </svg>
+                      </span>
+                    )}
+                    <span className="font-medium">{message}</span>
+                  </span>
+
+                  {/* 6-step progress tracker */}
+                  {showTracker && (
+                    <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100/80 overflow-x-auto">
+                      {visibleSteps.map((step, i) => {
+                        const state: "done" | "active" | "pending" = step.done
+                          ? "done"
+                          : step.loading
+                          ? "active"
+                          : "pending";
+
+                        const pillClass =
+                          state === "done"
+                            ? "bg-emerald-50 border-emerald-200/70 text-emerald-700"
+                            : state === "active"
+                            ? "bg-gray-900 border-gray-900 text-white"
+                            : "bg-white border-gray-200 text-gray-400";
+
+                        return (
+                          <span
+                            key={i}
+                            className={`inline-flex items-center gap-1 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none transition-all duration-300 select-none ${pillClass}`}
+                          >
+                            {state === "done" && (
+                              <svg className="h-2.5 w-2.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2.5 6.5L5 9l4.5-6" />
+                              </svg>
+                            )}
+                            {state === "active" && (
+                              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                                <span className="absolute inline-flex h-full w-full rounded-full bg-white/60 animate-status-pulse" />
+                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                              </span>
+                            )}
+                            {step.label}
+                          </span>
+                        );
+                      })}
+                    </div>
                   )}
-                  {message === "分析完成" && !isAnalyzing && (
-                    <span className="shrink-0 text-emerald-500">✓</span>
-                  )}
-                  {message}
-                </span>
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </section>
+
+          {/* ── Recent history ── */}
+          {recentHistory.length > 0 && (
+            <section className="mb-10">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 select-none">
+                  最近分析
+                </p>
+              </div>
+              {historyToast && (
+                <div className="mb-2 rounded-lg bg-amber-50 border border-amber-200/60 px-3 py-2 text-xs text-amber-700 transition-all">
+                  {historyToast}
+                </div>
+              )}
+              <div className="space-y-2">
+                {recentHistory.map((record) => (
+                  <div
+                    key={record.id}
+                    onClick={() => restoreFromHistory(record)}
+                    className="group flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-100 shadow-card px-4 py-3 cursor-pointer hover:shadow-card-hover hover:border-gray-200 transition-all duration-200 active:scale-[0.995]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="text-base opacity-50 shrink-0">
+                        {record.fileType === "pdf" ? "📄" : "📘"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {record.title}
+                        </p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {record.fileType.toUpperCase()}
+                          {record.mode === "lite" ? " · 简化版" : ""}
+                          <span className="mx-1.5">·</span>
+                          {new Date(record.createdAt).toLocaleDateString("zh-CN", {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteHistoryRecord(record.id);
+                      }}
+                      className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-all text-xs p-1"
+                      title="删除记录"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-300 mt-3 select-none">
+                最近记录仅保存在当前浏览器，清理缓存后可能丢失。
+              </p>
+            </section>
+          )}
 
           {/* ── Results ── */}
           {bookTitle && (

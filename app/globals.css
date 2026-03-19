@@ -161,6 +161,16 @@ body {
   animation: slide-from-left 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
+/* ── Status banner pulse ───────────────────────────────────────────────────── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .55; transform: scale(1.35); }
+}
+
+.animate-status-pulse {
+  animation: status-pulse 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 /* ── Custom shadows (Tailwind v4 utility extension) ─────────────────────────── */
 .shadow-card {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.04);
