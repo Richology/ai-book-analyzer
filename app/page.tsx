@@ -824,14 +824,24 @@ export default function Home() {
   };
 
   const handleAnalyze = async () => {
+    
     if (!selectedFile) {
       setMessage("请先选择一本 PDF 或 EPUB 电子书。");
       return;
     }
     try {
+      resetAllState();   // ✅ 放第一行
+
       setIsLoading(true);
       setMessage("正在上传文件...");
-      resetAllState();
+
+      // ✅ 加这 6 行（关键！）
+      setIsLoadingBookSummary(true);
+      setIsLoadingReadingGuide(true);
+      setIsLoadingViewMap(true);
+      setIsLoadingActionExtraction(true);
+      setIsLoadingViewValidation(true);
+      setIsLoadingIdeaSourceTracing(true);
       let res: Response;
       try {
         const { upload } = await import("@vercel/blob/client");
