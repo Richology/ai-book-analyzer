@@ -509,7 +509,7 @@ export default function Home() {
   const [isLiteUnlocked, setIsLiteUnlocked] = useState(false);
   const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
-  const [viewMode, setViewMode] = useState<"card" | "immersive">("card");
+  const [viewMode, setViewMode] = useState<"card" | "immersive">("immersive");
   const [immersiveIndex, setImmersiveIndex] = useState(0);
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const [shareModal, setShareModal] = useState<ShareModalState>(null);
@@ -628,7 +628,7 @@ export default function Home() {
     setIsLiteUnlocked(false);
     setIsPaywallModalOpen(false);
     setExpandedCards({});
-    setViewMode("card");
+    setViewMode("immersive");
     setImmersiveIndex(0);
     setSlideDir(null);
     setShareModal(null);
@@ -1683,6 +1683,14 @@ export default function Home() {
               alt="Richology"
               className="h-7 w-auto object-contain opacity-40"
             />
+            <a
+              href="https://richology.cn"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[12px] text-gray-800 hover:text-gray-950 transition-colors select-none"
+            >
+              由 安瑟A11BERICH 构建 · 了解作者 →
+            </a>
           </footer>
         </div>
       </main>
