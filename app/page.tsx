@@ -876,11 +876,13 @@ export default function Home() {
       const bookSummary = data.bookSummary || "";
       const chapters = data.chapters || [];
       const liteMode = data.mode === "lite";
-      setMessage("文件解析成功，正在进入分析流程...");
+      setMessage("文件解析成功，正在生成全书摘要...");
       setBookTitle(title);
       setBookSummary(bookSummary);
       setChapters(chapters);
       setIsLiteMode(liteMode);
+      setIsLoadingBookSummary(false);
+      setMessage("正在生成阅读指南...");
       fetchReadingGuide(title, bookSummary, chapters, !liteMode);
     } catch (error) {
       console.error(error);

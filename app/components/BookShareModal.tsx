@@ -21,14 +21,45 @@ export function BookShareModal({
   const handleSave = async () => {
     if (!cardRef.current) return;
     setIsSaving(true);
+  
     try {
       const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(cardRef.current, {
+      const node = cardRef.current;
+  
+      // 等字体和图片都稳定下来
+      if ("fonts" in document) {
+        await document.fonts.ready;
+      }
+  
+      const images = Array.from(node.querySelectorAll("img"));
+      await Promise.all(
+        images.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise<void>((resolve) => {
+            img.onload = () => resolve();
+            img.onerror = () => resolve();
+          });
+        })
+      );
+  
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+  
+      const width = node.scrollWidth;
+      const height = node.scrollHeight;
+  
+      const canvas = await html2canvas(node, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
+        width,
+        height,
+        windowWidth: width,
+        windowHeight: height,
+        scrollX: 0,
+        scrollY: 0,
       });
+  
       const url = canvas.toDataURL("image/png");
       const a = document.createElement("a");
       a.href = url;
@@ -152,7 +183,7 @@ export function BookShareModal({
             <div
               style={{
                 background: "linear-gradient(150deg,#0f172a 0%,#1e293b 100%)",
-                padding: "32px 40px 30px",
+                padding: "40px 40px 30px",
                 borderRadius: "20px 20px 0 0",
               }}
             >
@@ -171,22 +202,19 @@ export function BookShareModal({
 
               {/* Book title */}
               <p
-                style={{
-                  color: "#ffffff",
-                  fontSize: 24,
-                  fontWeight: 700,
-                  lineHeight: 1.35,
-                  margin: 0,
-                  letterSpacing: "0.01em",
-                  wordBreak: "break-all",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {bookTitle}
-              </p>
+              style={{
+                color: "#ffffff",
+                fontSize: 24,
+                fontWeight: 700,
+                lineHeight: 1.45,
+                margin: 0,
+                letterSpacing: "0.01em",
+                wordBreak: "break-word",
+                whiteSpace: "normal",
+              }}
+            >
+              {bookTitle}
+            </p>
             </div>
 
             {/* Thin accent line */}
@@ -232,7 +260,7 @@ export function BookShareModal({
             {/* Footer: logo */}
             <div
               style={{
-                padding: "14px 40px 24px",
+                padding: "14px 40px 16px",
                 borderTop: "1px solid #f3f4f6",
                 display: "flex",
                 justifyContent: "center",
