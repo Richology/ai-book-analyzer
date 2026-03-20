@@ -12,6 +12,13 @@ import {
 } from "./components/ExportModal";
 import { PosterPreviewModal } from "./components/poster/PosterPreviewModal";
 import type { PosterContent } from "./components/poster/types";
+import {
+  OnboardingOverlay,
+  OnboardingStyles,
+  isOnboardingDone,
+  markOnboardingDone,
+  type OnboardingStep,
+} from "./components/OnboardingOverlay";
 
 type Chapter = {
   id: string;
@@ -522,6 +529,12 @@ export default function Home() {
   const [isPosterModalOpen, setIsPosterModalOpen] = useState(false);
   const [posterContent, setPosterContent] = useState<PosterContent | null>(null);
   const [isGeneratingPoster, setIsGeneratingPoster] = useState(false);
+
+  // ── Onboarding state ──
+  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(null);
+  const [onboardingActive, setOnboardingActive] = useState(false);
+  const [maxCardSeen, setMaxCardSeen] = useState(0);
+  const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
   const [historyToast, setHistoryToast] = useState("");
 
@@ -564,6 +577,20 @@ export default function Home() {
     setRecentHistory(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, isAnalyzing]);
+
+  // ── Onboarding: trigger step 1 on first-ever analysis ──
+  useEffect(() => {
+    if (message !== "分析完成" || isAnalyzing || !bookTitle) return;
+    if (isOnboardingDone()) return;
+    // Only trigger if this is a fresh analysis (not a history restore)
+    if (!selectedFile) return;
+    setOnboardingActive(true);
+    setOnboardingStep("success");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message, isAnalyzing]);
+
+  // ── Onboarding: track max card index seen ──
+  // (moved to after immersiveCardList/safeImmersiveIndex computation below)
 
   const restoreFromHistory = (record: HistoryRecord) => {
     if (isAnalyzing) {
@@ -906,6 +933,10 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(url);
       setExportStatus("success");
+      // Onboarding: trigger export-done step
+      if (onboardingActive && onboardingStep === "cards-done") {
+        setOnboardingStep("export-done");
+      }
     } catch (error) {
       console.error(error);
       alert("导出失败，请稍后重试。");
@@ -944,6 +975,7 @@ export default function Home() {
     // Reuse cached content
     if (posterContent) {
       setIsPosterModalOpen(true);
+      if (onboardingActive) setOnboardingStep("poster");
       return;
     }
     setIsGeneratingPoster(true);
@@ -962,6 +994,7 @@ export default function Home() {
       if (data.success && data.content) {
         setPosterContent(data.content);
         setIsPosterModalOpen(true);
+        if (onboardingActive) setOnboardingStep("poster");
         // Persist poster content into history
         try {
           const fileType = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
@@ -1179,6 +1212,23 @@ export default function Home() {
       : 0;
 
   const currentImmersiveCard = immersiveCardList[safeImmersiveIndex];
+
+  // ── Onboarding: track max card index seen ──
+  useEffect(() => {
+    if (!onboardingActive || onboardingStep !== "cards") return;
+    if (safeImmersiveIndex > maxCardSeen) {
+      setMaxCardSeen(safeImmersiveIndex);
+    }
+    if (
+      immersiveCardList.length > 0 &&
+      safeImmersiveIndex >= immersiveCardList.length - 1
+    ) {
+      const t = setTimeout(() => setOnboardingStep("cards-done"), 800);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeImmersiveIndex, onboardingActive, onboardingStep]);
+
 
   const handleImmersiveTouchStart = (e: React.TouchEvent) => {
     touchStartXRef.current = e.touches[0].clientX;
@@ -1491,7 +1541,7 @@ export default function Home() {
 
               {/* View mode toggle */}
               {immersiveCardList.length > 0 && (
-                <div className="flex items-center mb-8">
+                <div ref={cardSectionRef} className="flex items-center mb-8">
                   <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
                     <button
                       onClick={() => setViewMode("card")}
@@ -1896,6 +1946,42 @@ export default function Home() {
           }}
         />
       )}
+
+      {/* ── Onboarding overlay ── */}
+      <OnboardingStyles />
+      <OnboardingOverlay
+        step={onboardingStep}
+        cardIndex={safeImmersiveIndex}
+        cardTotal={immersiveCardList.length}
+        onScrollToCards={() => {
+          setOnboardingStep("cards");
+          setViewMode("immersive");
+          setImmersiveIndex(0);
+          setTimeout(() => {
+            cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 200);
+        }}
+        onGoToExport={() => {
+          setOnboardingStep(null);
+          setExportStatus("idle");
+          setIsExportModalOpen(true);
+        }}
+        onGoToPoster={() => {
+          setOnboardingStep(null);
+          handleGeneratePoster();
+        }}
+        onDismiss={() => {
+          // Only mark fully done on final step or explicit skip
+          if (onboardingStep === "poster") {
+            setOnboardingStep(null);
+            setOnboardingActive(false);
+            markOnboardingDone();
+          } else {
+            // Auto-dismissed toast — advance to next natural step
+            setOnboardingStep(null);
+          }
+        }}
+      />
     </>
   );
 }
