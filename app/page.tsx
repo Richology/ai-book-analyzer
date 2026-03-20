@@ -10,6 +10,8 @@ import {
   type ExportParams,
   type ExportSection,
 } from "./components/ExportModal";
+import { PosterPreviewModal } from "./components/poster/PosterPreviewModal";
+import type { PosterContent } from "./components/poster/types";
 
 type Chapter = {
   id: string;
@@ -51,6 +53,7 @@ type HistoryRecord = {
   viewValidation: string;
   ideaSourceTracing: string;
   bookRecommendation: string;
+  posterContent?: PosterContent | null;
 };
 
 function loadHistory(): HistoryRecord[] {
@@ -516,6 +519,9 @@ export default function Home() {
   const [bookRecommendation, setBookRecommendation] = useState("");
   const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false);
   const [isBookShareModalOpen, setIsBookShareModalOpen] = useState(false);
+  const [isPosterModalOpen, setIsPosterModalOpen] = useState(false);
+  const [posterContent, setPosterContent] = useState<PosterContent | null>(null);
+  const [isGeneratingPoster, setIsGeneratingPoster] = useState(false);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
   const [historyToast, setHistoryToast] = useState("");
 
@@ -550,6 +556,7 @@ export default function Home() {
       viewValidation: criticalExamination,
       ideaSourceTracing,
       bookRecommendation,
+      posterContent: posterContent ?? null,
     };
     const prev = loadHistory().filter((r) => r.id !== record.id);
     const next = [record, ...prev].slice(0, HISTORY_MAX);
@@ -574,6 +581,7 @@ export default function Home() {
     setCriticalExamination(record.viewValidation);
     setIdeaSourceTracing(record.ideaSourceTracing);
     setBookRecommendation(record.bookRecommendation);
+    setPosterContent(record.posterContent ?? null);
     setIsLiteMode(record.mode === "lite");
     setIsLiteUnlocked(record.mode === "full");
     setMessage("分析完成");
@@ -635,6 +643,8 @@ export default function Home() {
     setBookRecommendation("");
     setIsGeneratingRecommendation(false);
     setIsBookShareModalOpen(false);
+    setIsPosterModalOpen(false);
+    setPosterContent(null);
     setIsExportModalOpen(false);
     setExportStatus("idle");
   };
@@ -926,6 +936,49 @@ export default function Home() {
       console.error("整书推荐生成失败:", err);
     } finally {
       setIsGeneratingRecommendation(false);
+    }
+  };
+
+  const handleGeneratePoster = async () => {
+    if (!bookSummary) return;
+    // Reuse cached content
+    if (posterContent) {
+      setIsPosterModalOpen(true);
+      return;
+    }
+    setIsGeneratingPoster(true);
+    try {
+      const res = await fetch("/api/skills/poster-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: bookTitle,
+          bookSummary,
+          readingGuide,
+          actionExtraction,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.content) {
+        setPosterContent(data.content);
+        setIsPosterModalOpen(true);
+        // Persist poster content into history
+        try {
+          const fileType = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
+          const recordId = `${bookTitle}-${fileType}`;
+          const history = loadHistory();
+          const idx = history.findIndex((r) => r.id === recordId);
+          if (idx >= 0) {
+            history[idx].posterContent = data.content;
+            saveHistory(history);
+            setRecentHistory(history);
+          }
+        } catch { /* ignore */ }
+      }
+    } catch (err) {
+      console.error("海报内容生成失败:", err);
+    } finally {
+      setIsGeneratingPoster(false);
     }
   };
 
@@ -1407,11 +1460,11 @@ export default function Home() {
                 <div className="flex items-center gap-2 shrink-0">
                   {bookSummary && (
                     <button
-                      onClick={handleGenerateBookRecommendation}
-                      disabled={isGeneratingRecommendation}
+                      onClick={handleGeneratePoster}
+                      disabled={isGeneratingPoster}
                       className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition disabled:opacity-50 flex items-center gap-1.5"
                     >
-                      {isGeneratingRecommendation ? (
+                      {isGeneratingPoster ? (
                         <>
                           <span className="relative flex h-1.5 w-1.5 shrink-0">
                             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-75" />
@@ -1420,7 +1473,7 @@ export default function Home() {
                           生成中…
                         </>
                       ) : (
-                        "生成整书分享卡"
+                        "生成海报"
                       )}
                     </button>
                   )}
@@ -1788,6 +1841,59 @@ export default function Home() {
           }
           recommendation={bookRecommendation}
           onClose={() => setIsBookShareModalOpen(false)}
+        />
+      )}
+
+      {/* ── Poster preview modal ── */}
+      {isPosterModalOpen && posterContent && (
+        <PosterPreviewModal
+          data={{
+            bookTitle:
+              bookTitle ||
+              selectedFile?.name.replace(/\.(epub|pdf)$/i, "") ||
+              "未知书名",
+            content: posterContent,
+          }}
+          onClose={() => setIsPosterModalOpen(false)}
+          onRegenerate={async () => {
+            setIsPosterModalOpen(false);
+            setPosterContent(null);
+            // Small delay so modal closes before re-opening
+            await new Promise((r) => setTimeout(r, 100));
+            setIsGeneratingPoster(true);
+            try {
+              const res = await fetch("/api/skills/poster-content", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: bookTitle,
+                  bookSummary,
+                  readingGuide,
+                  actionExtraction,
+                }),
+              });
+              const d = await res.json();
+              if (d.success && d.content) {
+                setPosterContent(d.content);
+                setIsPosterModalOpen(true);
+                try {
+                  const ft = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
+                  const rid = `${bookTitle}-${ft}`;
+                  const hist = loadHistory();
+                  const idx = hist.findIndex((r) => r.id === rid);
+                  if (idx >= 0) {
+                    hist[idx].posterContent = d.content;
+                    saveHistory(hist);
+                    setRecentHistory(hist);
+                  }
+                } catch { /* ignore */ }
+              }
+            } catch (err) {
+              console.error("海报内容重新生成失败:", err);
+            } finally {
+              setIsGeneratingPoster(false);
+            }
+          }}
         />
       )}
     </>
