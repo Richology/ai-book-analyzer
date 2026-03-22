@@ -62,6 +62,10 @@ type GuidanceToast = {
   actionText?: string;
   onAction?: () => void;
   durationMs?: number;
+  priority?: number;
+  isPersistent?: boolean;
+  showCloseButton?: boolean;
+  dismissible?: boolean;
 };
 
 // ── Share card content helpers ─────────────────────────────────────────────────
@@ -69,8 +73,12 @@ type GuidanceToast = {
 // ── Recent history (localStorage) ─────────────────────────────────────────────
 const HISTORY_KEY = "bookleap_recent_history";
 const HISTORY_MAX = 10;
+const HAS_UPLOADED_BOOK_KEY = "bookleap_has_uploaded_book";
+const LAST_ANALYZED_BOOK_TITLE_KEY = "bookleap_last_analyzed_book_title";
 const STARTER_MODE_SEEN_KEY = "bookleap_has_seen_starter_mode";
 const STARTER_SELECTED_BOOK_KEY = "bookleap_selected_starter_book";
+const STARTER_ENTRY_TOAST_SESSION_KEY = "bookleap_starter_entry_toast_seen";
+const RETURNING_USER_TOAST_SESSION_KEY = "bookleap_returning_user_toast_seen";
 const STARTER_LOADING_STEPS = [
   "正在解析全书结构…",
   "正在提炼核心观点…",
@@ -146,6 +154,63 @@ function setSelectedStarterBookId(value: string) {
     localStorage.setItem(STARTER_SELECTED_BOOK_KEY, value);
   } catch {
     // ignore storage failures
+  }
+}
+
+function hasSeenStarterEntryToastThisSession(): boolean {
+  try {
+    return sessionStorage.getItem(STARTER_ENTRY_TOAST_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markStarterEntryToastSeenThisSession() {
+  try {
+    sessionStorage.setItem(STARTER_ENTRY_TOAST_SESSION_KEY, "1");
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function hasSeenReturningUserToastThisSession(): boolean {
+  try {
+    return sessionStorage.getItem(RETURNING_USER_TOAST_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markReturningUserToastSeenThisSession() {
+  try {
+    sessionStorage.setItem(RETURNING_USER_TOAST_SESSION_KEY, "1");
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function hasUploadedBook(): boolean {
+  try {
+    return localStorage.getItem(HAS_UPLOADED_BOOK_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markUploadedBook(title: string) {
+  try {
+    localStorage.setItem(HAS_UPLOADED_BOOK_KEY, "1");
+    localStorage.setItem(LAST_ANALYZED_BOOK_TITLE_KEY, title);
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function getLastAnalyzedBookTitle(): string {
+  try {
+    return localStorage.getItem(LAST_ANALYZED_BOOK_TITLE_KEY) ?? "";
+  } catch {
+    return "";
   }
 }
 
@@ -600,6 +665,8 @@ export default function Home() {
   const [isStarterLoading, setIsStarterLoading] = useState(false);
   const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0]);
   const [currentStarterBookId, setCurrentStarterBookId] = useState<string | null>(null);
+  const [hasShownStarterEntryToast, setHasShownStarterEntryToast] = useState(false);
+  const [hasShownReturningUserToast, setHasShownReturningUserToast] = useState(false);
 
   const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
@@ -621,9 +688,14 @@ export default function Home() {
     const starterSeen = hasSeenStarterMode();
     const starterBookId = getSelectedStarterBookId();
 
+    const starterEntrySeenThisSession = hasSeenStarterEntryToastThisSession();
+    const returningUserToastSeenThisSession = hasSeenReturningUserToastThisSession();
+
     setRecentHistory(history);
     setOnboardingProgressState(onboardingStep);
     setSelectedStarterBookIdState(starterBookId);
+    setHasShownStarterEntryToast(starterEntrySeenThisSession);
+    setHasShownReturningUserToast(returningUserToastSeenThisSession);
     setIsStarterModeVisible(
       history.length === 0 && onboardingStep === "none" && !starterSeen && !starterBookId
     );
@@ -658,6 +730,9 @@ export default function Home() {
     const next = [record, ...prev].slice(0, HISTORY_MAX);
     saveHistory(next);
     setRecentHistory(next);
+    if (!currentStarterBook) {
+      markUploadedBook(record.title);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, isAnalyzing]);
 
@@ -676,7 +751,8 @@ export default function Home() {
       if (activeToast?.id === toast.id || prev.some((item) => item.id === toast.id)) {
         return prev;
       }
-      return [...prev, toast];
+      const next = [...prev, toast];
+      return next.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
     });
   }, [activeToast]);
 
@@ -692,31 +768,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [activeToast, toastQueue, lastToastClosedAt]);
 
-  const restoreFromHistory = (record: HistoryRecord) => {
-    if (isAnalyzing) {
-      setHistoryToast("当前正在分析，请稍后查看历史记录");
-      setTimeout(() => setHistoryToast(""), 2500);
-      return;
-    }
-    resetAllState();
-    setSelectedFile(null);
-    setBookTitle(record.title);
-    setBookSummary(record.bookSummary);
-    setReadingGuide(record.readingGuide);
-    setViewMap(record.viewMap);
-    setActionExtraction(record.actionExtraction);
-    setCriticalExamination(record.viewValidation);
-    setIdeaSourceTracing(record.ideaSourceTracing);
-    setBookRecommendation(record.bookRecommendation);
-    setPosterContent(record.posterContent ?? null);
-    setCurrentStarterBookId(record.isStarterBook ? record.starterBookId ?? null : null);
-    setIsLiteMode(record.mode === "lite");
-    setIsLiteUnlocked(record.mode === "full");
-    setDecisionError("");
-    setDecisionScenarios(loadDecisionScenarioCache(buildDecisionBookId(record.title)));
-    setIsDecisionPanelOpen(false);
-    setMessage("分析完成");
-  };
+  const hasBlockingToast = !!activeToast || toastQueue.length > 0;
 
   const deleteHistoryRecord = (id: string) => {
     const next = loadHistory().filter((r) => r.id !== id);
@@ -747,7 +799,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", handler);
   }, [viewMode]);
 
-  const resetAllState = () => {
+  const resetAllState = useCallback(() => {
     setBookTitle("");
     setBookSummary("");
     setIsLoadingBookSummary(false);
@@ -782,7 +834,33 @@ export default function Home() {
     setDecisionError("");
     setSeenCardKeys([]);
     setCurrentStarterBookId(null);
-  };
+  }, []);
+
+  const restoreFromHistory = useCallback((record: HistoryRecord) => {
+    if (isAnalyzing) {
+      setHistoryToast("当前正在分析，请稍后查看历史记录");
+      setTimeout(() => setHistoryToast(""), 2500);
+      return;
+    }
+    resetAllState();
+    setSelectedFile(null);
+    setBookTitle(record.title);
+    setBookSummary(record.bookSummary);
+    setReadingGuide(record.readingGuide);
+    setViewMap(record.viewMap);
+    setActionExtraction(record.actionExtraction);
+    setCriticalExamination(record.viewValidation);
+    setIdeaSourceTracing(record.ideaSourceTracing);
+    setBookRecommendation(record.bookRecommendation);
+    setPosterContent(record.posterContent ?? null);
+    setCurrentStarterBookId(record.isStarterBook ? record.starterBookId ?? null : null);
+    setIsLiteMode(record.mode === "lite");
+    setIsLiteUnlocked(record.mode === "full");
+    setDecisionError("");
+    setDecisionScenarios(loadDecisionScenarioCache(buildDecisionBookId(record.title)));
+    setIsDecisionPanelOpen(false);
+    setMessage("分析完成");
+  }, [isAnalyzing, resetAllState]);
 
   const processFile = (file: File | undefined | null) => {
     if (!file) {
@@ -1049,6 +1127,8 @@ export default function Home() {
           onAction: () => {
             void handleGeneratePoster();
           },
+          priority: 4,
+          durationMs: 10000,
         });
         advanceOnboardingProgress("exported");
       }
@@ -1186,7 +1266,7 @@ export default function Home() {
     setViewMode("immersive");
     setImmersiveIndex(0);
     setMessage("分析完成");
-  }, []);
+  }, [resetAllState]);
 
   const handleDismissStarterMode = () => {
     markStarterModeSeen();
@@ -1197,13 +1277,83 @@ export default function Home() {
     setSelectedStarterBookId("");
   };
 
-  const handleShowStarterMode = () => {
+  const handleShowStarterMode = useCallback(() => {
+    markStarterEntryToastSeenThisSession();
+    setHasShownStarterEntryToast(true);
     setIsStarterModeVisible(true);
     setIsStarterLoading(false);
     setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
-    setSelectedFile(null);
-    setMessage("");
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isStarterModeVisible || hasShownStarterEntryToast || isStarterLoading || hasBlockingToast) return;
+    if (recentHistory.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      enqueueGuidanceToast({
+        id: "starter-mode-entry",
+        message: "🎁 新功能：我们送你3本书，试试吗？",
+        actionText: "去看看",
+        onAction: handleShowStarterMode,
+        priority: 2,
+        isPersistent: true,
+        durationMs: 0,
+        showCloseButton: true,
+        dismissible: true,
+      });
+      markStarterEntryToastSeenThisSession();
+      setHasShownStarterEntryToast(true);
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    enqueueGuidanceToast,
+    handleShowStarterMode,
+    hasBlockingToast,
+    hasShownStarterEntryToast,
+    isStarterLoading,
+    isStarterModeVisible,
+    recentHistory.length,
+  ]);
+
+  useEffect(() => {
+    if (isStarterModeVisible || hasShownReturningUserToast || hasBlockingToast) return;
+    if (!hasUploadedBook()) return;
+
+    const lastTitle = getLastAnalyzedBookTitle();
+    if (!lastTitle) return;
+
+    const lastRecord = recentHistory.find((record) => record.title === lastTitle && !record.isStarterBook)
+      ?? recentHistory.find((record) => !record.isStarterBook);
+    if (!lastRecord) return;
+
+    const timer = window.setTimeout(() => {
+      enqueueGuidanceToast({
+        id: "returning-user-reminder",
+        message: `你上次分析了《${lastRecord.title}》\n继续看看？`,
+        actionText: "继续查看",
+        onAction: () => {
+          restoreFromHistory(lastRecord);
+          setTimeout(() => {
+            cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 80);
+        },
+        priority: 3,
+        durationMs: 10000,
+      });
+      markReturningUserToastSeenThisSession();
+      setHasShownReturningUserToast(true);
+    }, 2000);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    enqueueGuidanceToast,
+    hasBlockingToast,
+    hasShownReturningUserToast,
+    isStarterModeVisible,
+    recentHistory,
+    restoreFromHistory,
+  ]);
 
   const handleSelectStarterBook = async (starterBookId: string) => {
     const starterBook = starterBooksById[starterBookId];
@@ -1239,6 +1389,8 @@ export default function Home() {
       onAction: () => {
         void handleOpenDecisionTraining();
       },
+      priority: 1,
+      durationMs: 10000,
     });
     advanceOnboardingProgress("analyzed");
   }, [
@@ -1470,6 +1622,8 @@ export default function Home() {
       onAction: () => {
         void handleOpenDecisionTraining();
       },
+      priority: 1,
+      durationMs: 10000,
     });
     advanceOnboardingProgress("viewed_cards");
   }, [
@@ -1940,6 +2094,8 @@ export default function Home() {
                         setExportStatus("idle");
                         setIsExportModalOpen(true);
                       },
+                      priority: 4,
+                      durationMs: 10000,
                     });
                     advanceOnboardingProgress("trained");
                   }}
@@ -2258,7 +2414,9 @@ export default function Home() {
           message={activeToast.message}
           actionText={activeToast.actionText}
           onAction={activeToast.onAction}
-          durationMs={activeToast.durationMs}
+          durationMs={activeToast.isPersistent ? 0 : (activeToast.durationMs ?? 10000)}
+          showCloseButton={activeToast.showCloseButton ?? true}
+          dismissible={activeToast.dismissible ?? true}
           onClose={() => {
             setActiveToast(null);
             setLastToastClosedAt(Date.now());

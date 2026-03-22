@@ -7,13 +7,17 @@ export function Toast({
   actionText,
   onAction,
   onClose,
-  durationMs = 9000,
+  durationMs = 10000,
+  showCloseButton = true,
+  dismissible = true,
 }: {
   message: string | ReactNode;
   actionText?: string;
   onAction?: () => void;
   onClose: () => void;
   durationMs?: number;
+  showCloseButton?: boolean;
+  dismissible?: boolean;
 }) {
   const [visible, setVisible] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
@@ -35,9 +39,12 @@ export function Toast({
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setVisible(true));
-    closeTimerRef.current = window.setTimeout(() => {
-      dismiss();
-    }, durationMs);
+
+    if (Number.isFinite(durationMs) && durationMs > 0) {
+      closeTimerRef.current = window.setTimeout(() => {
+        dismiss();
+      }, durationMs);
+    }
 
     return () => {
       cancelAnimationFrame(raf);
@@ -78,20 +85,25 @@ export function Toast({
             </div>
           )}
         </div>
-        <button
-          onClick={dismiss}
-          className="shrink-0 rounded-full p-1 text-gray-300 transition-colors hover:text-gray-500"
-          aria-label="关闭提示"
-        >
-          <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
-            <path
-              d="M5 5L15 15M15 5L5 15"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+        {showCloseButton && (
+          <button
+            onClick={() => {
+              if (!dismissible) return;
+              dismiss();
+            }}
+            className="shrink-0 rounded-full p-1 text-gray-300 transition-colors hover:text-gray-500"
+            aria-label="关闭提示"
+          >
+            <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+              <path
+                d="M5 5L15 15M15 5L5 15"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );
