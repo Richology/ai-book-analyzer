@@ -271,7 +271,7 @@ export function BookShareModal({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/Richology商标黑体.png"
+                src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
                 alt="Richology"
                 style={{ height: 16, opacity: 0.28, objectFit: "contain" }}
               />

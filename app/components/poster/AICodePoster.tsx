@@ -105,7 +105,7 @@ export function AICodePoster({ data }: { data: PosterData }) {
               lineHeight: 1.5,
             }}
           >
-            // {content.hook}
+            {`// ${content.hook}`}
           </p>
         )}
       </div>

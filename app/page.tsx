@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -12,13 +12,22 @@ import {
 } from "./components/ExportModal";
 import { PosterPreviewModal } from "./components/poster/PosterPreviewModal";
 import type { PosterContent } from "./components/poster/types";
+import { DecisionTrainingPanel } from "./components/DecisionTrainingPanel";
+import { Toast } from "./components/Toast";
 import {
-  OnboardingOverlay,
-  OnboardingStyles,
-  isOnboardingDone,
-  markOnboardingDone,
-  type OnboardingStep,
-} from "./components/OnboardingOverlay";
+  buildDecisionBookId,
+  getDecisionCacheKey,
+  hasCompleteDecisionCards,
+  normalizeDecisionScenarioList,
+  type DecisionCardsInput,
+  type DecisionScenario,
+} from "@/types/decision";
+import {
+  getOnboardingStep,
+  isBeforeOnboardingStep,
+  setOnboardingStep as persistOnboardingStep,
+  type OnboardingProgress,
+} from "@/lib/onboarding";
 
 type Chapter = {
   id: string;
@@ -40,6 +49,14 @@ type ShareModalState = {
   content: string;
   bookTitle: string;
 } | null;
+
+type GuidanceToast = {
+  id: string;
+  message: string | ReactNode;
+  actionText?: string;
+  onAction?: () => void;
+  durationMs?: number;
+};
 
 // ── Share card content helpers ─────────────────────────────────────────────────
 
@@ -80,6 +97,24 @@ function saveHistory(records: HistoryRecord[]) {
   } catch { /* quota exceeded – silently ignore */ }
 }
 
+function loadDecisionScenarioCache(bookId: string): DecisionScenario[] {
+  try {
+    const raw = localStorage.getItem(getDecisionCacheKey(bookId));
+    if (!raw) return [];
+    return normalizeDecisionScenarioList(JSON.parse(raw), bookId);
+  } catch {
+    return [];
+  }
+}
+
+function saveDecisionScenarioCache(bookId: string, scenarios: DecisionScenario[]) {
+  try {
+    localStorage.setItem(getDecisionCacheKey(bookId), JSON.stringify(scenarios));
+  } catch {
+    // silently ignore cache failures
+  }
+}
+
 // ── Share card content helpers (continued) ────────────────────────────────────
 type ShareItem = { type: "heading" | "bullet" | "para"; text: string };
 
@@ -106,35 +141,6 @@ function parseShareItems(md: string): ShareItem[] {
     if (t.length > 4) items.push({ type: "para", text: cleanInlineMd(t) });
   }
   return items;
-}
-
-function buildShareItems(md: string): { items: ShareItem[]; truncated: boolean } {
-  const all = parseShareItems(md);
-  const MAX_ITEMS     = 5;
-  const MAX_HEADING   = 28;
-  const MAX_PER_ITEM  = 54;
-  const MAX_TOTAL     = 240;
-
-  const result: ShareItem[] = [];
-  let totalChars = 0;
-
-  for (const item of all) {
-    if (result.length >= MAX_ITEMS || totalChars >= MAX_TOTAL) break;
-    const cap  = item.type === "heading" ? MAX_HEADING : MAX_PER_ITEM;
-    const room = Math.min(MAX_TOTAL - totalChars, cap);
-    if (room < 5) break;
-    const text = item.text.length > room
-      ? item.text.slice(0, room).trimEnd() + "…"
-      : item.text;
-    result.push({ ...item, text });
-    totalChars += text.length;
-  }
-
-  const truncated =
-    all.length > result.length ||
-    result.some((r, i) => r.text !== all[i]?.text);
-
-  return { items: result, truncated };
 }
 
 // ── Share Card Modal ──────────────────────────────────────────────────────────
@@ -431,7 +437,7 @@ function ShareModal({
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/Richology商标黑体.png"
+                src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
                 alt="Richology"
                 style={{ height: 16, opacity: 0.28, objectFit: "contain" }}
               />
@@ -524,16 +530,20 @@ export default function Home() {
   const [slideDir, setSlideDir] = useState<"left" | "right" | null>(null);
   const [shareModal, setShareModal] = useState<ShareModalState>(null);
   const [bookRecommendation, setBookRecommendation] = useState("");
-  const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false);
   const [isBookShareModalOpen, setIsBookShareModalOpen] = useState(false);
   const [isPosterModalOpen, setIsPosterModalOpen] = useState(false);
   const [posterContent, setPosterContent] = useState<PosterContent | null>(null);
   const [isGeneratingPoster, setIsGeneratingPoster] = useState(false);
+  const [decisionScenarios, setDecisionScenarios] = useState<DecisionScenario[]>([]);
+  const [isDecisionPanelOpen, setIsDecisionPanelOpen] = useState(false);
+  const [isDecisionLoading, setIsDecisionLoading] = useState(false);
+  const [decisionError, setDecisionError] = useState("");
+  const [activeToast, setActiveToast] = useState<GuidanceToast | null>(null);
+  const [toastQueue, setToastQueue] = useState<GuidanceToast[]>([]);
+  const [lastToastClosedAt, setLastToastClosedAt] = useState(0);
+  const [onboardingProgress, setOnboardingProgressState] = useState<OnboardingProgress>("none");
+  const [seenCardKeys, setSeenCardKeys] = useState<string[]>([]);
 
-  // ── Onboarding state ──
-  const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>(null);
-  const [onboardingActive, setOnboardingActive] = useState(false);
-  const [maxCardSeen, setMaxCardSeen] = useState(0);
   const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
   const [historyToast, setHistoryToast] = useState("");
@@ -547,9 +557,10 @@ export default function Home() {
     isLoadingViewValidation ||
     isLoadingIdeaSourceTracing;
 
-  // Load history on mount
+  // Load history + onboarding progress on mount
   useEffect(() => {
     setRecentHistory(loadHistory());
+    setOnboardingProgressState(getOnboardingStep());
   }, []);
 
   // Save to history when analysis completes
@@ -578,19 +589,36 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, isAnalyzing]);
 
-  // ── Onboarding: trigger step 1 on first-ever analysis ──
-  useEffect(() => {
-    if (message !== "分析完成" || isAnalyzing || !bookTitle) return;
-    if (isOnboardingDone()) return;
-    // Only trigger if this is a fresh analysis (not a history restore)
-    if (!selectedFile) return;
-    setOnboardingActive(true);
-    setOnboardingStep("success");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message, isAnalyzing]);
+  const advanceOnboardingProgress = useCallback((nextStep: OnboardingProgress) => {
+    setOnboardingProgressState((prev) => {
+      if (!isBeforeOnboardingStep(prev, nextStep)) {
+        return prev;
+      }
+      persistOnboardingStep(nextStep);
+      return nextStep;
+    });
+  }, []);
 
-  // ── Onboarding: track max card index seen ──
-  // (moved to after immersiveCardList/safeImmersiveIndex computation below)
+  const enqueueGuidanceToast = useCallback((toast: GuidanceToast) => {
+    setToastQueue((prev) => {
+      if (activeToast?.id === toast.id || prev.some((item) => item.id === toast.id)) {
+        return prev;
+      }
+      return [...prev, toast];
+    });
+  }, [activeToast]);
+
+  useEffect(() => {
+    if (activeToast || toastQueue.length === 0) return;
+
+    const remainingDelay = Math.max(0, 10000 - (Date.now() - lastToastClosedAt));
+    const timer = window.setTimeout(() => {
+      setActiveToast(toastQueue[0]);
+      setToastQueue((prev) => prev.slice(1));
+    }, remainingDelay);
+
+    return () => window.clearTimeout(timer);
+  }, [activeToast, toastQueue, lastToastClosedAt]);
 
   const restoreFromHistory = (record: HistoryRecord) => {
     if (isAnalyzing) {
@@ -611,6 +639,9 @@ export default function Home() {
     setPosterContent(record.posterContent ?? null);
     setIsLiteMode(record.mode === "lite");
     setIsLiteUnlocked(record.mode === "full");
+    setDecisionError("");
+    setDecisionScenarios(loadDecisionScenarioCache(buildDecisionBookId(record.title)));
+    setIsDecisionPanelOpen(false);
     setMessage("分析完成");
   };
 
@@ -641,7 +672,6 @@ export default function Home() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
 
   const resetAllState = () => {
@@ -668,12 +698,16 @@ export default function Home() {
     setSlideDir(null);
     setShareModal(null);
     setBookRecommendation("");
-    setIsGeneratingRecommendation(false);
     setIsBookShareModalOpen(false);
     setIsPosterModalOpen(false);
     setPosterContent(null);
     setIsExportModalOpen(false);
     setExportStatus("idle");
+    setDecisionScenarios([]);
+    setIsDecisionPanelOpen(false);
+    setIsDecisionLoading(false);
+    setDecisionError("");
+    setSeenCardKeys([]);
   };
 
   const processFile = (file: File | undefined | null) => {
@@ -933,9 +967,16 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(url);
       setExportStatus("success");
-      // Onboarding: trigger export-done step
-      if (onboardingActive && onboardingStep === "cards-done") {
-        setOnboardingStep("export-done");
+      if (isBeforeOnboardingStep(onboardingProgress, "exported")) {
+        enqueueGuidanceToast({
+          id: "onboarding-exported",
+          message: "📦 已导出\n👉 试试生成分享海报，让这本书变成你的表达",
+          actionText: "生成海报",
+          onAction: () => {
+            void handleGeneratePoster();
+          },
+        });
+        advanceOnboardingProgress("exported");
       }
     } catch (error) {
       console.error(error);
@@ -944,38 +985,14 @@ export default function Home() {
     }
   };
 
-  const handleGenerateBookRecommendation = async () => {
-    if (!bookSummary) return;
-    // Reuse cached result if already generated for this book
-    if (bookRecommendation) {
-      setIsBookShareModalOpen(true);
-      return;
-    }
-    setIsGeneratingRecommendation(true);
-    try {
-      const res = await fetch("/api/skills/book-recommendation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: bookTitle, bookSummary, readingGuide }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setBookRecommendation(data.recommendation || "");
-        setIsBookShareModalOpen(true);
-      }
-    } catch (err) {
-      console.error("整书推荐生成失败:", err);
-    } finally {
-      setIsGeneratingRecommendation(false);
-    }
-  };
-
   const handleGeneratePoster = async () => {
     if (!bookSummary) return;
     // Reuse cached content
     if (posterContent) {
       setIsPosterModalOpen(true);
-      if (onboardingActive) setOnboardingStep("poster");
+      if (!isBeforeOnboardingStep(onboardingProgress, "exported")) {
+        advanceOnboardingProgress("completed");
+      }
       return;
     }
     setIsGeneratingPoster(true);
@@ -994,7 +1011,9 @@ export default function Home() {
       if (data.success && data.content) {
         setPosterContent(data.content);
         setIsPosterModalOpen(true);
-        if (onboardingActive) setOnboardingStep("poster");
+        if (!isBeforeOnboardingStep(onboardingProgress, "exported")) {
+          advanceOnboardingProgress("completed");
+        }
         // Persist poster content into history
         try {
           const fileType = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
@@ -1014,6 +1033,91 @@ export default function Home() {
       setIsGeneratingPoster(false);
     }
   };
+
+  const getDecisionCardsInput = useCallback((): DecisionCardsInput => ({
+    summary: bookSummary,
+    readingGuide,
+    viewMap,
+    actionPrinciples: actionExtraction,
+    models: criticalExamination,
+    insights: ideaSourceTracing,
+  }), [bookSummary, readingGuide, viewMap, actionExtraction, criticalExamination, ideaSourceTracing]);
+
+  const handleOpenDecisionTraining = useCallback(async () => {
+    if (!bookTitle) return;
+
+    const cards = getDecisionCardsInput();
+    if (!hasCompleteDecisionCards(cards)) {
+      setDecisionError("请先完成 6 张分析卡片，再开始决策训练。");
+      return;
+    }
+
+    const bookId = buildDecisionBookId(bookTitle);
+    const cached = loadDecisionScenarioCache(bookId);
+    if (cached.length > 0) {
+      setDecisionScenarios(cached);
+      setDecisionError("");
+      setIsDecisionPanelOpen(true);
+      return;
+    }
+
+    try {
+      setIsDecisionLoading(true);
+      setDecisionError("");
+      const res = await fetch("/api/decision/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookTitle,
+          cards,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setDecisionError(data.error || "决策训练生成失败，请稍后重试。");
+        return;
+      }
+
+      const scenarios = normalizeDecisionScenarioList(data.scenarios, bookId);
+      if (scenarios.length === 0) {
+        setDecisionError("这次没有生成有效的决策训练题，请稍后再试。");
+        return;
+      }
+
+      saveDecisionScenarioCache(bookId, scenarios);
+      setDecisionScenarios(scenarios);
+      setIsDecisionPanelOpen(true);
+    } catch (error) {
+      console.error("决策训练生成失败:", error);
+      setDecisionError("决策训练生成失败，请稍后重试。");
+    } finally {
+      setIsDecisionLoading(false);
+    }
+  }, [bookTitle, getDecisionCardsInput]);
+
+  useEffect(() => {
+    if (message !== "分析完成" || isAnalyzing || !bookTitle || !selectedFile) return;
+    if (!isBeforeOnboardingStep(onboardingProgress, "analyzed")) return;
+
+    enqueueGuidanceToast({
+      id: "onboarding-analyzed",
+      message: "🎯 已生成你的6张卡片\n👉 用1分钟试试真实场景决策",
+      actionText: "开始训练",
+      onAction: () => {
+        void handleOpenDecisionTraining();
+      },
+    });
+    advanceOnboardingProgress("analyzed");
+  }, [
+    message,
+    isAnalyzing,
+    bookTitle,
+    selectedFile,
+    onboardingProgress,
+    advanceOnboardingProgress,
+    enqueueGuidanceToast,
+    handleOpenDecisionTraining,
+  ]);
 
   const handleAnalyze = async () => {
     
@@ -1116,22 +1220,10 @@ export default function Home() {
         }}
         className={cardClassName}
       >
-        {/* Label + share button */}
         <div className="flex items-center justify-between gap-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 select-none">
             {label}
           </p>
-          {!isLoadingCard && content && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShareModal({ label, content, bookTitle });
-              }}
-              className="shrink-0 text-[10px] font-medium text-gray-400 hover:text-gray-700 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-0.5 transition-all select-none"
-            >
-              分享
-            </button>
-          )}
         </div>
 
         {isLoadingCard ? (
@@ -1213,22 +1305,48 @@ export default function Home() {
 
   const currentImmersiveCard = immersiveCardList[safeImmersiveIndex];
 
-  // ── Onboarding: track max card index seen ──
   useEffect(() => {
-    if (!onboardingActive || onboardingStep !== "cards") return;
-    if (safeImmersiveIndex > maxCardSeen) {
-      setMaxCardSeen(safeImmersiveIndex);
-    }
-    if (
-      immersiveCardList.length > 0 &&
-      safeImmersiveIndex >= immersiveCardList.length - 1
-    ) {
-      const t = setTimeout(() => setOnboardingStep("cards-done"), 800);
-      return () => clearTimeout(t);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [safeImmersiveIndex, onboardingActive, onboardingStep]);
+    if (!currentImmersiveCard || currentImmersiveCard.isLoading || !bookTitle) return;
 
+    setSeenCardKeys((prev) =>
+      prev.includes(currentImmersiveCard.key)
+        ? prev
+        : [...prev, currentImmersiveCard.key]
+    );
+  }, [currentImmersiveCard, bookTitle]);
+
+  useEffect(() => {
+    const expandedKeys = Object.entries(expandedCards)
+      .filter(([, expanded]) => expanded)
+      .map(([key]) => key);
+
+    if (expandedKeys.length === 0) return;
+
+    setSeenCardKeys((prev) => Array.from(new Set([...prev, ...expandedKeys])));
+  }, [expandedCards]);
+
+  useEffect(() => {
+    if (seenCardKeys.length < 3) return;
+    if (!hasCompleteDecisionCards(getDecisionCardsInput())) return;
+    if (!isBeforeOnboardingStep(onboardingProgress, "viewed_cards")) return;
+
+    enqueueGuidanceToast({
+      id: "onboarding-viewed-cards",
+      message: "📚 你已经理解这本书的核心\n👉 要不要试试“用出来”？",
+      actionText: "开始决策训练",
+      onAction: () => {
+        void handleOpenDecisionTraining();
+      },
+    });
+    advanceOnboardingProgress("viewed_cards");
+  }, [
+    seenCardKeys,
+    onboardingProgress,
+    getDecisionCardsInput,
+    handleOpenDecisionTraining,
+    advanceOnboardingProgress,
+    enqueueGuidanceToast,
+  ]);
 
   const handleImmersiveTouchStart = (e: React.TouchEvent) => {
     touchStartXRef.current = e.touches[0].clientX;
@@ -1503,16 +1621,44 @@ export default function Home() {
           {bookTitle && (
             <>
               {/* Title bar */}
-              <div className="flex items-center justify-between gap-4 mb-5">
-                <h2 className="text-lg font-semibold text-gray-900 truncate leading-snug">
+              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+                <h2 className="max-w-full text-left text-lg font-semibold leading-snug text-gray-900 md:truncate">
                   {bookTitle}
                 </h2>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
+                  {bookTitle && hasCompleteDecisionCards(getDecisionCardsInput()) && !isAnalyzing && (
+                    <button
+                      onClick={handleOpenDecisionTraining}
+                      disabled={isDecisionLoading}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-950 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50 sm:w-auto"
+                    >
+                      {isDecisionLoading ? (
+                        <>
+                          <span className="relative flex h-1.5 w-1.5 shrink-0">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-300 opacity-75" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                          </span>
+                          生成中…
+                        </>
+                      ) : (
+                        "开始决策训练"
+                      )}
+                    </button>
+                  )}
+                  {(!isLiteMode || isLiteUnlocked) && (
+                    <button
+                      onClick={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
+                      disabled={exportStatus === "exporting"}
+                      className="flex min-w-[120px] flex-1 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50 sm:flex-none"
+                    >
+                      {exportStatus === "exporting" ? "导出中…" : "导出知识包"}
+                    </button>
+                  )}
                   {bookSummary && (
                     <button
                       onClick={handleGeneratePoster}
                       disabled={isGeneratingPoster}
-                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition disabled:opacity-50 flex items-center gap-1.5"
+                      className="flex min-w-[120px] flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50 sm:flex-none"
                     >
                       {isGeneratingPoster ? (
                         <>
@@ -1525,15 +1671,6 @@ export default function Home() {
                       ) : (
                         "生成海报"
                       )}
-                    </button>
-                  )}
-                  {(!isLiteMode || isLiteUnlocked) && (
-                    <button
-                      onClick={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
-                      disabled={exportStatus === "exporting"}
-                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 transition disabled:opacity-50"
-                    >
-                      {exportStatus === "exporting" ? "导出中…" : "导出知识包"}
                     </button>
                   )}
                 </div>
@@ -1625,8 +1762,38 @@ export default function Home() {
                 </div>
               )}
 
+              {decisionError && (
+                <div className="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-5 py-4">
+                  <p className="text-sm leading-6 text-amber-800">{decisionError}</p>
+                </div>
+              )}
+
+              {isDecisionPanelOpen && decisionScenarios.length > 0 && (
+                <DecisionTrainingPanel
+                  scenarios={decisionScenarios}
+                  onBackToCards={() => {
+                    setIsDecisionPanelOpen(false);
+                    cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  onComplete={() => {
+                    if (!isBeforeOnboardingStep(onboardingProgress, "trained")) return;
+                    enqueueGuidanceToast({
+                      id: "onboarding-trained",
+                      message: "📚 你已经理解这本书了\n👉 下一步，把它带走",
+                      actionText: "导出知识包",
+                      onAction: () => {
+                        setExportStatus("idle");
+                        setIsExportModalOpen(true);
+                      },
+                    });
+                    advanceOnboardingProgress("trained");
+                  }}
+                />
+              )}
+
               {/* ── Immersive mode ── */}
-              {viewMode === "immersive" &&
+              {!isDecisionPanelOpen &&
+                viewMode === "immersive" &&
                 immersiveCardList.length > 0 &&
                 currentImmersiveCard && (
                   <div
@@ -1661,26 +1828,10 @@ export default function Home() {
                           : ""
                       }`}
                     >
-                      {/* Card top row */}
                       <div className="flex items-center justify-between mb-6">
                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
                           {currentImmersiveCard.label}
                         </p>
-                        {!currentImmersiveCard.isLoading &&
-                          currentImmersiveCard.content && (
-                            <button
-                              onClick={() =>
-                                setShareModal({
-                                  label: currentImmersiveCard.label,
-                                  content: currentImmersiveCard.content,
-                                  bookTitle,
-                                })
-                              }
-                              className="text-[10px] font-medium text-gray-400 hover:text-gray-700 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-0.5 transition-all select-none"
-                            >
-                              分享
-                            </button>
-                          )}
                       </div>
 
                       {currentImmersiveCard.isLoading ? (
@@ -1749,7 +1900,7 @@ export default function Home() {
                 )}
 
               {/* ── Card mode ── */}
-              {viewMode === "card" && (
+              {!isDecisionPanelOpen && viewMode === "card" && (
                 <>
                   {beforeReadingCards.length > 0 && (
                     <div className="mb-10">
@@ -1782,7 +1933,7 @@ export default function Home() {
           <footer className="mt-20 mb-4 flex flex-col items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/Richology商标黑体.png"
+              src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
               alt="Richology"
               className="h-7 w-auto object-contain opacity-40"
             />
@@ -1947,41 +2098,18 @@ export default function Home() {
         />
       )}
 
-      {/* ── Onboarding overlay ── */}
-      <OnboardingStyles />
-      <OnboardingOverlay
-        step={onboardingStep}
-        cardIndex={safeImmersiveIndex}
-        cardTotal={immersiveCardList.length}
-        onScrollToCards={() => {
-          setOnboardingStep("cards");
-          setViewMode("immersive");
-          setImmersiveIndex(0);
-          setTimeout(() => {
-            cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 200);
-        }}
-        onGoToExport={() => {
-          setOnboardingStep(null);
-          setExportStatus("idle");
-          setIsExportModalOpen(true);
-        }}
-        onGoToPoster={() => {
-          setOnboardingStep(null);
-          handleGeneratePoster();
-        }}
-        onDismiss={() => {
-          // Only mark fully done on final step or explicit skip
-          if (onboardingStep === "poster") {
-            setOnboardingStep(null);
-            setOnboardingActive(false);
-            markOnboardingDone();
-          } else {
-            // Auto-dismissed toast — advance to next natural step
-            setOnboardingStep(null);
-          }
-        }}
-      />
+      {activeToast && (
+        <Toast
+          message={activeToast.message}
+          actionText={activeToast.actionText}
+          onAction={activeToast.onAction}
+          durationMs={activeToast.durationMs}
+          onClose={() => {
+            setActiveToast(null);
+            setLastToastClosedAt(Date.now());
+          }}
+        />
+      )}
     </>
   );
 }
