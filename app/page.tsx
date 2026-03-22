@@ -13,6 +13,7 @@ import {
 import { PosterPreviewModal } from "./components/poster/PosterPreviewModal";
 import type { PosterContent } from "./components/poster/types";
 import { DecisionTrainingPanel } from "./components/DecisionTrainingPanel";
+import { StarterModePanel } from "./components/StarterModePanel";
 import { Toast } from "./components/Toast";
 import {
   buildDecisionBookId,
@@ -28,6 +29,11 @@ import {
   setOnboardingStep as persistOnboardingStep,
   type OnboardingProgress,
 } from "@/lib/onboarding";
+import {
+  starterBooks,
+  starterBooksById,
+  type StarterBookData,
+} from "@/src/data/starterBooks";
 
 type Chapter = {
   id: string;
@@ -63,6 +69,13 @@ type GuidanceToast = {
 // ── Recent history (localStorage) ─────────────────────────────────────────────
 const HISTORY_KEY = "bookleap_recent_history";
 const HISTORY_MAX = 10;
+const STARTER_MODE_SEEN_KEY = "bookleap_has_seen_starter_mode";
+const STARTER_SELECTED_BOOK_KEY = "bookleap_selected_starter_book";
+const STARTER_LOADING_STEPS = [
+  "正在解析全书结构…",
+  "正在提炼核心观点…",
+  "正在生成认知卡片…",
+] as const;
 
 type HistoryRecord = {
   id: string;
@@ -78,6 +91,9 @@ type HistoryRecord = {
   ideaSourceTracing: string;
   bookRecommendation: string;
   posterContent?: PosterContent | null;
+  isStarterBook?: boolean;
+  starterBookId?: string;
+  author?: string;
 };
 
 function loadHistory(): HistoryRecord[] {
@@ -95,6 +111,42 @@ function saveHistory(records: HistoryRecord[]) {
   try {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(records.slice(0, HISTORY_MAX)));
   } catch { /* quota exceeded – silently ignore */ }
+}
+
+function hasSeenStarterMode(): boolean {
+  try {
+    return localStorage.getItem(STARTER_MODE_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markStarterModeSeen() {
+  try {
+    localStorage.setItem(STARTER_MODE_SEEN_KEY, "1");
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function getSelectedStarterBookId() {
+  try {
+    return localStorage.getItem(STARTER_SELECTED_BOOK_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function setSelectedStarterBookId(value: string) {
+  try {
+    if (!value) {
+      localStorage.removeItem(STARTER_SELECTED_BOOK_KEY);
+      return;
+    }
+    localStorage.setItem(STARTER_SELECTED_BOOK_KEY, value);
+  } catch {
+    // ignore storage failures
+  }
 }
 
 function loadDecisionScenarioCache(bookId: string): DecisionScenario[] {
@@ -543,6 +595,11 @@ export default function Home() {
   const [lastToastClosedAt, setLastToastClosedAt] = useState(0);
   const [onboardingProgress, setOnboardingProgressState] = useState<OnboardingProgress>("none");
   const [seenCardKeys, setSeenCardKeys] = useState<string[]>([]);
+  const [isStarterModeVisible, setIsStarterModeVisible] = useState(false);
+  const [selectedStarterBookId, setSelectedStarterBookIdState] = useState("");
+  const [isStarterLoading, setIsStarterLoading] = useState(false);
+  const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0]);
+  const [currentStarterBookId, setCurrentStarterBookId] = useState<string | null>(null);
 
   const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
@@ -559,14 +616,26 @@ export default function Home() {
 
   // Load history + onboarding progress on mount
   useEffect(() => {
-    setRecentHistory(loadHistory());
-    setOnboardingProgressState(getOnboardingStep());
+    const history = loadHistory();
+    const onboardingStep = getOnboardingStep();
+    const starterSeen = hasSeenStarterMode();
+    const starterBookId = getSelectedStarterBookId();
+
+    setRecentHistory(history);
+    setOnboardingProgressState(onboardingStep);
+    setSelectedStarterBookIdState(starterBookId);
+    setIsStarterModeVisible(
+      history.length === 0 && onboardingStep === "none" && !starterSeen && !starterBookId
+    );
   }, []);
 
   // Save to history when analysis completes
   useEffect(() => {
     if (message !== "分析完成" || isAnalyzing || !bookTitle) return;
     const fileType = selectedFile?.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub";
+    const currentStarterBook = currentStarterBookId
+      ? starterBooksById[currentStarterBookId] ?? null
+      : null;
     const record: HistoryRecord = {
       id: `${bookTitle}-${fileType}`,
       title: bookTitle,
@@ -581,6 +650,9 @@ export default function Home() {
       ideaSourceTracing,
       bookRecommendation,
       posterContent: posterContent ?? null,
+      isStarterBook: !!currentStarterBook,
+      starterBookId: currentStarterBook?.id,
+      author: currentStarterBook?.author,
     };
     const prev = loadHistory().filter((r) => r.id !== record.id);
     const next = [record, ...prev].slice(0, HISTORY_MAX);
@@ -637,6 +709,7 @@ export default function Home() {
     setIdeaSourceTracing(record.ideaSourceTracing);
     setBookRecommendation(record.bookRecommendation);
     setPosterContent(record.posterContent ?? null);
+    setCurrentStarterBookId(record.isStarterBook ? record.starterBookId ?? null : null);
     setIsLiteMode(record.mode === "lite");
     setIsLiteUnlocked(record.mode === "full");
     setDecisionError("");
@@ -708,6 +781,7 @@ export default function Home() {
     setIsDecisionLoading(false);
     setDecisionError("");
     setSeenCardKeys([]);
+    setCurrentStarterBookId(null);
   };
 
   const processFile = (file: File | undefined | null) => {
@@ -1095,6 +1169,65 @@ export default function Home() {
     }
   }, [bookTitle, getDecisionCardsInput]);
 
+  const applyStarterBook = useCallback((starterBook: StarterBookData) => {
+    resetAllState();
+    setSelectedFile(null);
+    setCurrentStarterBookId(starterBook.id);
+    setBookTitle(starterBook.title);
+    setBookSummary(starterBook.analysis.summary);
+    setReadingGuide(starterBook.analysis.readingGuide);
+    setViewMap(starterBook.analysis.viewMap);
+    setActionExtraction(starterBook.analysis.actionExtraction);
+    setCriticalExamination(starterBook.analysis.viewValidation);
+    setIdeaSourceTracing(starterBook.analysis.ideaSourceTracing);
+    setPosterContent(starterBook.posterContent);
+    setDecisionScenarios(starterBook.decisionTraining);
+    saveDecisionScenarioCache(buildDecisionBookId(starterBook.title), starterBook.decisionTraining);
+    setViewMode("immersive");
+    setImmersiveIndex(0);
+    setMessage("分析完成");
+  }, []);
+
+  const handleDismissStarterMode = () => {
+    markStarterModeSeen();
+    setIsStarterModeVisible(false);
+    setIsStarterLoading(false);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+    setSelectedStarterBookIdState("");
+    setSelectedStarterBookId("");
+  };
+
+  const handleShowStarterMode = () => {
+    setIsStarterModeVisible(true);
+    setIsStarterLoading(false);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+    setSelectedFile(null);
+    setMessage("");
+  };
+
+  const handleSelectStarterBook = async (starterBookId: string) => {
+    const starterBook = starterBooksById[starterBookId];
+    if (!starterBook || isStarterLoading) return;
+
+    markStarterModeSeen();
+    setSelectedStarterBookIdState(starterBookId);
+    setSelectedStarterBookId(starterBookId);
+    setIsStarterLoading(true);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+
+    try {
+      for (const step of STARTER_LOADING_STEPS) {
+        setStarterLoadingStep(step);
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
+
+      applyStarterBook(starterBook);
+      setIsStarterModeVisible(false);
+    } finally {
+      setIsStarterLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (message !== "分析完成" || isAnalyzing || !bookTitle || !selectedFile) return;
     if (!isBeforeOnboardingStep(onboardingProgress, "analyzed")) return;
@@ -1382,6 +1515,18 @@ export default function Home() {
           </header>
 
           {/* ── Upload section ── */}
+          {isStarterModeVisible ? (
+            <StarterModePanel
+              books={starterBooks}
+              isLoading={isStarterLoading}
+              loadingStep={starterLoadingStep}
+              selectedBookId={selectedStarterBookId}
+              onSelectBook={(starterBookId) => {
+                void handleSelectStarterBook(starterBookId);
+              }}
+              onChooseUpload={handleDismissStarterMode}
+            />
+          ) : (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-7 mb-10">
             <input
               ref={fileInputRef}
@@ -1390,6 +1535,15 @@ export default function Home() {
               onChange={handleFileChange}
               className="hidden"
             />
+
+            <div className="mb-4 flex items-center justify-end">
+              <button
+                onClick={handleShowStarterMode}
+                className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
+              >
+                返回推荐书单
+              </button>
+            </div>
 
             {/* Drop zone */}
             <div
@@ -1556,6 +1710,7 @@ export default function Home() {
               );
             })()}
           </section>
+          )}
 
           {/* ── Recent history ── */}
           {recentHistory.length > 0 && (
