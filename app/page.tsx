@@ -618,6 +618,7 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const touchStartXRef = useRef(0);
   const immersiveCardsLenRef = useRef(0);
+  const shouldScrollToStarterSectionRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
@@ -1277,6 +1278,14 @@ export default function Home() {
     setSelectedStarterBookId("");
   };
 
+  const scrollToStarterBooksSection = useCallback(() => {
+    const el = document.getElementById("starter-books-section");
+    if (!el) return;
+
+    const y = el.getBoundingClientRect().top + window.scrollY - 80;
+    window.scrollTo({ top: y, behavior: "smooth" });
+  }, []);
+
   const handleShowStarterMode = useCallback(() => {
     markStarterEntryToastSeenThisSession();
     setHasShownStarterEntryToast(true);
@@ -1284,6 +1293,22 @@ export default function Home() {
     setIsStarterLoading(false);
     setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
   }, []);
+
+  const handleShowStarterModeFromToast = useCallback(() => {
+    shouldScrollToStarterSectionRef.current = true;
+    handleShowStarterMode();
+  }, [handleShowStarterMode]);
+
+  useEffect(() => {
+    if (!isStarterModeVisible || !shouldScrollToStarterSectionRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      scrollToStarterBooksSection();
+      shouldScrollToStarterSectionRef.current = false;
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [isStarterModeVisible, scrollToStarterBooksSection]);
 
   useEffect(() => {
     if (isStarterModeVisible || hasShownStarterEntryToast || isStarterLoading || hasBlockingToast) return;
@@ -1294,7 +1319,7 @@ export default function Home() {
         id: "starter-mode-entry",
         message: "🎁 新功能：我们送你3本书，试试吗？",
         actionText: "去看看",
-        onAction: handleShowStarterMode,
+        onAction: handleShowStarterModeFromToast,
         priority: 2,
         isPersistent: true,
         durationMs: 0,
@@ -1309,6 +1334,7 @@ export default function Home() {
   }, [
     enqueueGuidanceToast,
     handleShowStarterMode,
+    handleShowStarterModeFromToast,
     hasBlockingToast,
     hasShownStarterEntryToast,
     isStarterLoading,

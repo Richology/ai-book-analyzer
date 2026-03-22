@@ -19,7 +19,7 @@ export function StarterModePanel({
   onChooseUpload: () => void;
 }) {
   return (
-    <section className="mb-10 overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-card">
+    <section id="starter-books-section" className="mb-10 overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-card">
       <div className="px-6 pt-5 pb-3 text-center md:px-8 md:pt-6 md:pb-4">
         <h2 className="mt-2 text-[1.7rem] font-bold tracking-tight text-gray-950 md:text-[2rem]">
           我们送你 3 本好书，任选一本开始分析
