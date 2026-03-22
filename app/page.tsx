@@ -15,6 +15,7 @@ import type { PosterContent } from "./components/poster/types";
 import { DecisionTrainingPanel } from "./components/DecisionTrainingPanel";
 import { StarterModePanel } from "./components/StarterModePanel";
 import { Toast } from "./components/Toast";
+import { FabMenu, type FabMenuHandle } from "./components/FabMenu";
 import {
   buildDecisionBookId,
   getDecisionCacheKey,
@@ -79,6 +80,8 @@ const STARTER_MODE_SEEN_KEY = "bookleap_has_seen_starter_mode";
 const STARTER_SELECTED_BOOK_KEY = "bookleap_selected_starter_book";
 const STARTER_ENTRY_TOAST_SESSION_KEY = "bookleap_starter_entry_toast_seen";
 const RETURNING_USER_TOAST_SESSION_KEY = "bookleap_returning_user_toast_seen";
+const HISTORY_REORGANIZED_KEY = "bookleap_history_reorganized_shown";
+const FAB_HISTORY_SEEN_KEY = "bookleap_fab_history_seen";
 const STARTER_LOADING_STEPS = [
   "正在解析全书结构…",
   "正在提炼核心观点…",
@@ -211,6 +214,38 @@ function getLastAnalyzedBookTitle(): string {
     return localStorage.getItem(LAST_ANALYZED_BOOK_TITLE_KEY) ?? "";
   } catch {
     return "";
+  }
+}
+
+function hasHistoryReorganizedBeenShown(): boolean {
+  try {
+    return localStorage.getItem(HISTORY_REORGANIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markHistoryReorganizedShown() {
+  try {
+    localStorage.setItem(HISTORY_REORGANIZED_KEY, "1");
+  } catch {
+    // ignore
+  }
+}
+
+function hasFabHistoryBeenSeen(): boolean {
+  try {
+    return localStorage.getItem(FAB_HISTORY_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markFabHistorySeen() {
+  try {
+    localStorage.setItem(FAB_HISTORY_SEEN_KEY, "1");
+  } catch {
+    // ignore
   }
 }
 
@@ -668,10 +703,14 @@ export default function Home() {
   const [currentStarterBookId, setCurrentStarterBookId] = useState<string | null>(null);
   const [hasShownStarterEntryToast, setHasShownStarterEntryToast] = useState(false);
   const [hasShownReturningUserToast, setHasShownReturningUserToast] = useState(false);
+  const [showFabRedDot, setShowFabRedDot] = useState(false);
+  const fabMenuRef = useRef<FabMenuHandle>(null);
 
   const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
   const [historyToast, setHistoryToast] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const pendingDeleteTimerRef = useRef<number | null>(null);
 
   const isAnalyzing =
     isLoading ||
@@ -697,6 +736,9 @@ export default function Home() {
     setSelectedStarterBookIdState(starterBookId);
     setHasShownStarterEntryToast(starterEntrySeenThisSession);
     setHasShownReturningUserToast(returningUserToastSeenThisSession);
+    setShowFabRedDot(
+      hasHistoryReorganizedBeenShown() && !hasFabHistoryBeenSeen() && history.length >= 3
+    );
     setIsStarterModeVisible(
       history.length === 0 && onboardingStep === "none" && !starterSeen && !starterBookId
     );
@@ -733,6 +775,20 @@ export default function Home() {
     setRecentHistory(next);
     if (!currentStarterBook) {
       markUploadedBook(record.title);
+    }
+    if (next.length >= 3 && !hasHistoryReorganizedBeenShown()) {
+      markHistoryReorganizedShown();
+      setShowFabRedDot(true);
+      enqueueGuidanceToast({
+        id: "history-reorganized",
+        message: "📚 你的分析记录已自动整理到「我的」",
+        actionText: "去看看",
+        onAction: () => {
+          fabMenuRef.current?.open();
+        },
+        priority: 4,
+        durationMs: 10000,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [message, isAnalyzing]);
@@ -771,11 +827,56 @@ export default function Home() {
 
   const hasBlockingToast = !!activeToast || toastQueue.length > 0;
 
-  const deleteHistoryRecord = (id: string) => {
+  const commitDelete = useCallback((id: string) => {
+    if (pendingDeleteTimerRef.current !== null) {
+      window.clearTimeout(pendingDeleteTimerRef.current);
+      pendingDeleteTimerRef.current = null;
+    }
     const next = loadHistory().filter((r) => r.id !== id);
     saveHistory(next);
     setRecentHistory(next);
-  };
+    setPendingDeleteId(null);
+  }, []);
+
+  const cancelDelete = useCallback(() => {
+    if (pendingDeleteTimerRef.current !== null) {
+      window.clearTimeout(pendingDeleteTimerRef.current);
+      pendingDeleteTimerRef.current = null;
+    }
+    setPendingDeleteId(null);
+  }, []);
+
+  const deleteHistoryRecord = useCallback((id: string) => {
+    // If there's already a pending delete, finalize it first
+    if (pendingDeleteId && pendingDeleteId !== id) {
+      commitDelete(pendingDeleteId);
+    }
+
+    const record = recentHistory.find((r) => r.id === id);
+    const title = record?.title ?? "未知";
+
+    setPendingDeleteId(id);
+
+    // Clear any existing timer
+    if (pendingDeleteTimerRef.current !== null) {
+      window.clearTimeout(pendingDeleteTimerRef.current);
+    }
+
+    // Auto-delete after 10 seconds
+    pendingDeleteTimerRef.current = window.setTimeout(() => {
+      commitDelete(id);
+    }, 10000);
+
+    // Show undo toast via the active toast slot (bypasses queue for immediacy)
+    setActiveToast({
+      id: `delete-undo-${id}`,
+      message: `已删除《${title}》\n10 秒后永久删除`,
+      durationMs: 10000,
+    });
+    setDeleteUndoActions({ id, title });
+  }, [pendingDeleteId, recentHistory, commitDelete]);
+
+  const [deleteUndoActions, setDeleteUndoActions] = useState<{ id: string; title: string } | null>(null);
 
   const toggleCard = (key: string) => {
     setExpandedCards((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -1721,7 +1822,7 @@ export default function Home() {
                 onClick={handleShowStarterMode}
                 className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
               >
-                返回推荐书单
+                返回新人推荐
               </button>
             </div>
 
@@ -1906,46 +2007,63 @@ export default function Home() {
                 </div>
               )}
               <div className="space-y-2">
-                {recentHistory.map((record) => (
-                  <div
-                    key={record.id}
-                    onClick={() => restoreFromHistory(record)}
-                    className="group flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-100 shadow-card px-4 py-3 cursor-pointer hover:shadow-card-hover hover:border-gray-200 transition-all duration-200 active:scale-[0.995]"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-base opacity-50 shrink-0">
-                        {record.fileType === "pdf" ? "📄" : "📘"}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">
-                          {record.title}
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          {record.fileType.toUpperCase()}
-                          {record.mode === "lite" ? " · 简化版" : ""}
-                          <span className="mx-1.5">·</span>
-                          {new Date(record.createdAt).toLocaleDateString("zh-CN", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteHistoryRecord(record.id);
-                      }}
-                      className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-all text-xs p-1"
-                      title="删除记录"
+                {recentHistory.slice(0, 2).map((record) => {
+                  const isPending = pendingDeleteId === record.id;
+                  return (
+                    <div
+                      key={record.id}
+                      onClick={() => { if (!isPending) restoreFromHistory(record); }}
+                      className={`group flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-100 shadow-card px-4 py-3 transition-all duration-200 ${
+                        isPending
+                          ? "opacity-40 scale-[0.98] pointer-events-none select-none"
+                          : "cursor-pointer hover:shadow-card-hover hover:border-gray-200 active:scale-[0.995]"
+                      }`}
                     >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-base opacity-50 shrink-0">
+                          {record.fileType === "pdf" ? "📄" : "📘"}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">
+                            {record.title}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {record.fileType.toUpperCase()}
+                            {record.mode === "lite" ? " · 简化版" : ""}
+                            <span className="mx-1.5">·</span>
+                            {new Date(record.createdAt).toLocaleDateString("zh-CN", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                      {!isPending && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteHistoryRecord(record.id);
+                          }}
+                          className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-500 transition-all text-xs p-1"
+                          title="删除记录"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
+              {recentHistory.length > 2 && (
+                <button
+                  onClick={() => fabMenuRef.current?.open()}
+                  className="mt-3 text-xs font-medium text-gray-400 transition-colors hover:text-gray-600"
+                >
+                  查看更多 →
+                </button>
+              )}
               <p className="text-[10px] text-gray-300 mt-3 select-none">
                 最近记录仅保存在当前浏览器，清理缓存后可能丢失。
               </p>
@@ -2436,19 +2554,72 @@ export default function Home() {
       )}
 
       {activeToast && (
-        <Toast
-          message={activeToast.message}
-          actionText={activeToast.actionText}
-          onAction={activeToast.onAction}
-          durationMs={activeToast.isPersistent ? 0 : (activeToast.durationMs ?? 10000)}
-          showCloseButton={activeToast.showCloseButton ?? true}
-          dismissible={activeToast.dismissible ?? true}
-          onClose={() => {
-            setActiveToast(null);
-            setLastToastClosedAt(Date.now());
-          }}
-        />
+        deleteUndoActions && activeToast.id === `delete-undo-${deleteUndoActions.id}` ? (
+          <Toast
+            message={activeToast.message}
+            durationMs={10000}
+            showCloseButton={false}
+            dismissible={false}
+            onClose={() => {
+              // Auto-close means timer expired — commit happens via pendingDeleteTimerRef
+              setActiveToast(null);
+              setLastToastClosedAt(Date.now());
+              setDeleteUndoActions(null);
+            }}
+            actionText="撤销"
+            onAction={() => {
+              cancelDelete();
+              setActiveToast(null);
+              setLastToastClosedAt(Date.now());
+              setDeleteUndoActions(null);
+            }}
+            secondaryActionText="立即删除"
+            onSecondaryAction={() => {
+              commitDelete(deleteUndoActions.id);
+              setActiveToast(null);
+              setLastToastClosedAt(Date.now());
+              setDeleteUndoActions(null);
+            }}
+          />
+        ) : (
+          <Toast
+            message={activeToast.message}
+            actionText={activeToast.actionText}
+            onAction={activeToast.onAction}
+            durationMs={activeToast.isPersistent ? 0 : (activeToast.durationMs ?? 10000)}
+            showCloseButton={activeToast.showCloseButton ?? true}
+            dismissible={activeToast.dismissible ?? true}
+            onClose={() => {
+              setActiveToast(null);
+              setLastToastClosedAt(Date.now());
+            }}
+          />
+        )
       )}
+
+      <FabMenu
+        ref={fabMenuRef}
+        historyItems={recentHistory}
+        showRedDot={showFabRedDot}
+        currentBookTitle={bookTitle}
+        pendingDeleteId={pendingDeleteId}
+        onOpen={() => {
+          if (showFabRedDot) {
+            markFabHistorySeen();
+            setShowFabRedDot(false);
+          }
+        }}
+        onRestoreHistory={(id) => {
+          const record = recentHistory.find((r) => r.id === id);
+          if (record) {
+            restoreFromHistory(record);
+            setHistoryToast(`已切换到《${record.title}》`);
+            setTimeout(() => setHistoryToast(""), 2500);
+          }
+        }}
+        onDeleteHistory={deleteHistoryRecord}
+        onOpenStarterBooks={handleShowStarterModeFromToast}
+      />
     </>
   );
 }

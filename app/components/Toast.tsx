@@ -10,6 +10,8 @@ export function Toast({
   durationMs = 10000,
   showCloseButton = true,
   dismissible = true,
+  secondaryActionText,
+  onSecondaryAction,
 }: {
   message: string | ReactNode;
   actionText?: string;
@@ -18,6 +20,8 @@ export function Toast({
   durationMs?: number;
   showCloseButton?: boolean;
   dismissible?: boolean;
+  secondaryActionText?: string;
+  onSecondaryAction?: () => void;
 }) {
   const [visible, setVisible] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
@@ -69,8 +73,8 @@ export function Toast({
             message
           )}
 
-          {(actionText || onAction) && (
-            <div className="mt-3 flex items-center gap-3">
+          {(actionText || secondaryActionText) && (
+            <div className="mt-3 flex items-center gap-2">
               {actionText && onAction && (
                 <button
                   onClick={() => {
@@ -80,6 +84,17 @@ export function Toast({
                   className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-white hover:text-gray-950"
                 >
                   {actionText}
+                </button>
+              )}
+              {secondaryActionText && onSecondaryAction && (
+                <button
+                  onClick={() => {
+                    onSecondaryAction();
+                    dismiss();
+                  }}
+                  className="rounded-full px-3 py-1.5 text-xs font-medium text-gray-400 transition-all hover:text-gray-600"
+                >
+                  {secondaryActionText}
                 </button>
               )}
             </div>
