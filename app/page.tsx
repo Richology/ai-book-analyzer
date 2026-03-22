@@ -1780,6 +1780,18 @@ export default function Home() {
         <div className="mx-auto max-w-4xl">
 
           {/* ── Header ── */}
+          {recentHistory.length >= 5 && !isStarterModeVisible ? (
+            <header className="mb-6 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-lg font-bold tracking-tight text-gray-950">
+                  书跃 · BookLeap
+                </h1>
+                <span className="text-[10px] text-gray-400 font-medium tracking-wide">
+                  ✦ 结构化书籍分析
+                </span>
+              </div>
+            </header>
+          ) : (
           <header className="mb-12 text-center">
             <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white border border-gray-200 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
               <span className="text-gray-400">✦</span> AI 驱动的结构化书籍分析平台
@@ -1794,6 +1806,7 @@ export default function Home() {
               上传电子书，获取结构化的知识卡片，提升学习的效率和质量
             </p>
           </header>
+          )}
 
           {/* ── Upload section ── */}
           {isStarterModeVisible ? (
@@ -1807,6 +1820,24 @@ export default function Home() {
               }}
               onChooseUpload={handleDismissStarterMode}
             />
+          ) : recentHistory.length >= 5 && !selectedFile && !isAnalyzing ? (
+          /* ── Compact upload for experienced users ── */
+          <section className="mb-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.epub,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:shadow active:scale-[0.98]"
+            >
+              <span className="text-base leading-none">+</span>
+              上传新书
+            </button>
+          </section>
           ) : (
           <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-7 mb-10">
             <input
@@ -1885,113 +1916,113 @@ export default function Home() {
             >
               {isLoading ? "解析中…" : "开始分析"}
             </button>
-
-            {/* Status banner + progress tracker */}
-            {message && (() => {
-              const isError =
-                message.includes("失败") ||
-                message.includes("仅支持") ||
-                message.includes("请先选择");
-              const isSuccess = message === "分析完成" && !isAnalyzing;
-
-              const bannerClass = isError
-                ? "bg-red-50/80 border-red-200/60 text-red-600"
-                : isSuccess
-                ? "bg-emerald-50/80 border-emerald-200/60 text-emerald-700"
-                : isAnalyzing
-                ? "bg-gray-50 border-gray-200 text-gray-700"
-                : "bg-gray-50 border-gray-100 text-gray-500";
-
-              /* ── 6-step progress definitions (real generation order) ── */
-              const steps: { label: string; loading: boolean; done: boolean }[] = [
-                { label: "全书摘要", loading: isLoadingBookSummary,        done: !!bookSummary },
-                { label: "阅读指南", loading: isLoadingReadingGuide,       done: !!readingGuide },
-                { label: "观点地图", loading: isLoadingViewMap,            done: !!viewMap },
-                { label: "行动提炼", loading: isLoadingActionExtraction,   done: !!actionExtraction },
-                { label: "观点校验", loading: isLoadingViewValidation,     done: !!criticalExamination },
-                { label: "思想溯源", loading: isLoadingIdeaSourceTracing,  done: !!ideaSourceTracing },
-              ];
-              const showTracker =
-                !isError && steps.some((s) => s.loading || s.done);
-              /* In lite mode (not unlocked), only show the first 2 steps */
-              const visibleSteps =
-                isLiteMode && !isLiteUnlocked ? steps.slice(0, 2) : steps;
-
-              return (
-                <div
-                  className={`mt-4 rounded-xl px-4 py-3 text-sm border transition-all duration-300 ${bannerClass}`}
-                >
-                  {/* Status text row */}
-                  <span className="flex items-center gap-2.5">
-                    {isAnalyzing && (
-                      <span className="relative flex h-2 w-2 shrink-0">
-                        <span className="absolute inline-flex h-full w-full rounded-full bg-gray-400 animate-status-pulse" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-gray-500" />
-                      </span>
-                    )}
-                    {isSuccess && (
-                      <span className="flex items-center justify-center h-4 w-4 rounded-full bg-emerald-100 shrink-0">
-                        <svg className="h-2.5 w-2.5 text-emerald-600" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M2.5 6.5L5 9l4.5-6" />
-                        </svg>
-                      </span>
-                    )}
-                    {isError && (
-                      <span className="flex items-center justify-center h-4 w-4 rounded-full bg-red-100 shrink-0">
-                        <svg className="h-2.5 w-2.5 text-red-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="6" cy="6" r="4.5" />
-                          <path d="M6 4v2.5" />
-                          <circle cx="6" cy="8.5" r="0.5" fill="currentColor" stroke="none" />
-                        </svg>
-                      </span>
-                    )}
-                    <span className="font-medium">{message}</span>
-                  </span>
-
-                  {/* 6-step progress tracker */}
-                  {showTracker && (
-                    <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100/80 overflow-x-auto">
-                      {visibleSteps.map((step, i) => {
-                        const state: "done" | "active" | "pending" = step.done
-                          ? "done"
-                          : step.loading
-                          ? "active"
-                          : "pending";
-
-                        const pillClass =
-                          state === "done"
-                            ? "bg-emerald-50 border-emerald-200/70 text-emerald-700"
-                            : state === "active"
-                            ? "bg-gray-900 border-gray-900 text-white"
-                            : "bg-white border-gray-200 text-gray-400";
-
-                        return (
-                          <span
-                            key={i}
-                            className={`inline-flex items-center gap-1 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none transition-all duration-300 select-none ${pillClass}`}
-                          >
-                            {state === "done" && (
-                              <svg className="h-2.5 w-2.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M2.5 6.5L5 9l4.5-6" />
-                              </svg>
-                            )}
-                            {state === "active" && (
-                              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                                <span className="absolute inline-flex h-full w-full rounded-full bg-white/60 animate-status-pulse" />
-                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
-                              </span>
-                            )}
-                            {step.label}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
           </section>
           )}
+
+          {/* ── Status banner + progress tracker (independent of upload panel) ── */}
+          {message && (() => {
+            const isError =
+              message.includes("失败") ||
+              message.includes("仅支持") ||
+              message.includes("请先选择");
+            const isSuccess = message === "分析完成" && !isAnalyzing;
+
+            const bannerClass = isError
+              ? "bg-red-50/80 border-red-200/60 text-red-600"
+              : isSuccess
+              ? "bg-emerald-50/80 border-emerald-200/60 text-emerald-700"
+              : isAnalyzing
+              ? "bg-gray-50 border-gray-200 text-gray-700"
+              : "bg-gray-50 border-gray-100 text-gray-500";
+
+            /* ── 6-step progress definitions (real generation order) ── */
+            const steps: { label: string; loading: boolean; done: boolean }[] = [
+              { label: "全书摘要", loading: isLoadingBookSummary,        done: !!bookSummary },
+              { label: "阅读指南", loading: isLoadingReadingGuide,       done: !!readingGuide },
+              { label: "观点地图", loading: isLoadingViewMap,            done: !!viewMap },
+              { label: "行动提炼", loading: isLoadingActionExtraction,   done: !!actionExtraction },
+              { label: "观点校验", loading: isLoadingViewValidation,     done: !!criticalExamination },
+              { label: "思想溯源", loading: isLoadingIdeaSourceTracing,  done: !!ideaSourceTracing },
+            ];
+            const showTracker =
+              !isError && steps.some((s) => s.loading || s.done);
+            /* In lite mode (not unlocked), only show the first 2 steps */
+            const visibleSteps =
+              isLiteMode && !isLiteUnlocked ? steps.slice(0, 2) : steps;
+
+            return (
+              <div
+                className={`mb-6 rounded-xl px-4 py-3 text-sm border transition-all duration-300 ${bannerClass}`}
+              >
+                {/* Status text row */}
+                <span className="flex items-center gap-2.5">
+                  {isAnalyzing && (
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="absolute inline-flex h-full w-full rounded-full bg-gray-400 animate-status-pulse" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-gray-500" />
+                    </span>
+                  )}
+                  {isSuccess && (
+                    <span className="flex items-center justify-center h-4 w-4 rounded-full bg-emerald-100 shrink-0">
+                      <svg className="h-2.5 w-2.5 text-emerald-600" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2.5 6.5L5 9l4.5-6" />
+                      </svg>
+                    </span>
+                  )}
+                  {isError && (
+                    <span className="flex items-center justify-center h-4 w-4 rounded-full bg-red-100 shrink-0">
+                      <svg className="h-2.5 w-2.5 text-red-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="6" cy="6" r="4.5" />
+                        <path d="M6 4v2.5" />
+                        <circle cx="6" cy="8.5" r="0.5" fill="currentColor" stroke="none" />
+                      </svg>
+                    </span>
+                  )}
+                  <span className="font-medium">{message}</span>
+                </span>
+
+                {/* 6-step progress tracker */}
+                {showTracker && (
+                  <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100/80 overflow-x-auto">
+                    {visibleSteps.map((step, i) => {
+                      const state: "done" | "active" | "pending" = step.done
+                        ? "done"
+                        : step.loading
+                        ? "active"
+                        : "pending";
+
+                      const pillClass =
+                        state === "done"
+                          ? "bg-emerald-50 border-emerald-200/70 text-emerald-700"
+                          : state === "active"
+                          ? "bg-gray-900 border-gray-900 text-white"
+                          : "bg-white border-gray-200 text-gray-400";
+
+                      return (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium leading-none transition-all duration-300 select-none ${pillClass}`}
+                        >
+                          {state === "done" && (
+                            <svg className="h-2.5 w-2.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2.5 6.5L5 9l4.5-6" />
+                            </svg>
+                          )}
+                          {state === "active" && (
+                            <span className="relative flex h-1.5 w-1.5 shrink-0">
+                              <span className="absolute inline-flex h-full w-full rounded-full bg-white/60 animate-status-pulse" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                            </span>
+                          )}
+                          {step.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ── Recent history ── */}
           {recentHistory.length > 0 && (
