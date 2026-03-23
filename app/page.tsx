@@ -267,6 +267,22 @@ function saveDecisionScenarioCache(bookId: string, scenarios: DecisionScenario[]
   }
 }
 
+function clearBookDerivedCaches(bookTitle: string) {
+  try {
+    const bookId = buildDecisionBookId(bookTitle);
+    const keys = [
+      getDecisionCacheKey(bookId),
+      `decision_scenarios_v2_${bookId}`,
+      `poster_content_${bookId}`,
+      `poster_content_v2_${bookId}`,
+    ];
+
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch {
+    // ignore storage failures
+  }
+}
+
 // ── Share card content helpers (continued) ────────────────────────────────────
 type ShareItem = { type: "heading" | "bullet" | "para"; text: string };
 
@@ -832,7 +848,14 @@ export default function Home() {
       window.clearTimeout(pendingDeleteTimerRef.current);
       pendingDeleteTimerRef.current = null;
     }
-    const next = loadHistory().filter((r) => r.id !== id);
+    const history = loadHistory();
+    const recordToDelete = history.find((r) => r.id === id);
+    const next = history.filter((r) => r.id !== id);
+
+    if (recordToDelete) {
+      clearBookDerivedCaches(recordToDelete.title);
+    }
+
     saveHistory(next);
     setRecentHistory(next);
     setPendingDeleteId(null);
