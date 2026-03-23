@@ -19,6 +19,7 @@ import { FabMenu, type FabMenuHandle } from "./components/FabMenu";
 import {
   buildDecisionBookId,
   getDecisionCacheKey,
+  getLegacyDecisionCacheKey,
   hasCompleteDecisionCards,
   normalizeDecisionScenarioList,
   type DecisionCardsInput,
@@ -262,6 +263,7 @@ function loadDecisionScenarioCache(bookId: string): DecisionScenario[] {
 function saveDecisionScenarioCache(bookId: string, scenarios: DecisionScenario[]) {
   try {
     localStorage.setItem(getDecisionCacheKey(bookId), JSON.stringify(scenarios));
+    localStorage.removeItem(getLegacyDecisionCacheKey(bookId));
   } catch {
     // silently ignore cache failures
   }
@@ -272,7 +274,7 @@ function clearBookDerivedCaches(bookTitle: string) {
     const bookId = buildDecisionBookId(bookTitle);
     const keys = [
       getDecisionCacheKey(bookId),
-      `decision_scenarios_v2_${bookId}`,
+      getLegacyDecisionCacheKey(bookId),
       `poster_content_${bookId}`,
       `poster_content_v2_${bookId}`,
     ];
@@ -1333,7 +1335,7 @@ export default function Home() {
 
     const bookId = buildDecisionBookId(bookTitle);
     const cached = loadDecisionScenarioCache(bookId);
-    if (cached.length > 0) {
+    if (cached.length === 3) {
       setDecisionScenarios(cached);
       setDecisionError("");
       setIsDecisionPanelOpen(true);
@@ -1358,8 +1360,8 @@ export default function Home() {
       }
 
       const scenarios = normalizeDecisionScenarioList(data.scenarios, bookId);
-      if (scenarios.length === 0) {
-        setDecisionError("这次没有生成有效的决策训练题，请稍后再试。");
+      if (scenarios.length !== 3) {
+        setDecisionError(data.error || "这次生成的决策训练题格式不完整，请稍后再试。");
         return;
       }
 

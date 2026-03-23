@@ -141,6 +141,15 @@ export function DecisionTrainingPanel({
 
         {viewMode === "scenario" && (
           <div className="space-y-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
+                {currentScenario.roleType}
+              </span>
+              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-500">
+                训练能力：{currentScenario.trainingAbility}
+              </span>
+            </div>
+
             <div className="rounded-3xl border border-gray-100 bg-gray-50/70 px-5 py-5 md:px-6">
               <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
                 场景

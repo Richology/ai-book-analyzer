@@ -1,6 +1,8 @@
 import type { PosterContent } from "@/app/components/poster/types";
 import {
+  DECISION_ROLE_TYPES,
   buildDecisionBookId,
+  type DecisionRoleType,
   type DecisionScenario,
 } from "@/types/decision";
 import cognitiveAwakeningSource from "./cognitive-awakening.json";
@@ -19,6 +21,8 @@ type StarterBookSource = {
     actions: string[];
   };
   decisionTraining: Array<{
+    roleType?: DecisionRoleType;
+    trainingAbility?: string;
     scene: string;
     question: string;
     options: {
@@ -127,17 +131,34 @@ function buildIdeaSourceTracing(source: StarterBookSource): string {
   ].join("\n");
 }
 
+const FALLBACK_ROLE_TRAINING: Record<DecisionRoleType, string> = {
+  职场执行者: "把原则用进现实协作的能力",
+  个人成长者: "在真实生活里做长期选择的能力",
+  决策者: "在复杂系统里做长期决策的能力",
+};
+
 function toDecisionTraining(source: StarterBookSource): DecisionScenario[] {
   const bookId = buildDecisionBookId(source.title);
 
-  return source.decisionTraining.map((scenario, index) => ({
-    id: `${source.id}-decision-${index + 1}`,
-    bookId,
-    scene: scenario.scene,
-    question: scenario.question,
-    options: scenario.options,
-    feedback: scenario.feedback,
-  }));
+  return source.decisionTraining
+    .slice(0, DECISION_ROLE_TYPES.length)
+    .map((scenario, index) => {
+      const fallbackRoleType = DECISION_ROLE_TYPES[index] ?? DECISION_ROLE_TYPES[0];
+      const roleType = scenario.roleType ?? fallbackRoleType;
+      const trainingAbility =
+        scenario.trainingAbility?.trim() || FALLBACK_ROLE_TRAINING[roleType];
+
+      return {
+        id: `${source.id}-decision-${index + 1}`,
+        bookId,
+        roleType,
+        trainingAbility,
+        scene: scenario.scene,
+        question: scenario.question,
+        options: scenario.options,
+        feedback: scenario.feedback,
+      };
+    });
 }
 
 function toPosterContent(source: StarterBookSource): PosterContent {

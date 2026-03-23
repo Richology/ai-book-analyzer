@@ -27,8 +27,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, scenarios });
   } catch (error) {
     console.error("[decision-training] 生成失败:", error);
+
+    const message =
+      error instanceof Error && error.message.trim().length > 0
+        ? error.message
+        : "决策训练生成失败";
+
     return NextResponse.json(
-      { success: false, error: "决策训练生成失败" },
+      { success: false, error: message },
       { status: 500 }
     );
   }
