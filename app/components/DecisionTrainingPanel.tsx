@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   DecisionFeedbackBlock,
   DecisionOptionKey,
@@ -71,15 +71,23 @@ function FeedbackView({
 export function DecisionTrainingPanel({
   scenarios,
   onBackToCards,
+  onAnswerComplete,
   onComplete,
 }: {
   scenarios: DecisionScenario[];
   onBackToCards: () => void;
+  onAnswerComplete?: (option: DecisionOptionKey, progress: number) => void;
   onComplete?: () => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<DecisionOptionKey | null>(null);
   const [viewMode, setViewMode] = useState<"scenario" | "feedback" | "done">("scenario");
+
+  useEffect(() => {
+    setCurrentIndex(0);
+    setSelectedOption(null);
+    setViewMode("scenario");
+  }, [scenarios]);
 
   const currentScenario = scenarios[currentIndex];
 
@@ -93,6 +101,11 @@ export function DecisionTrainingPanel({
   };
 
   const handleNext = () => {
+    if (!selectedOption) return;
+
+    const nextProgress = currentIndex + 1;
+    onAnswerComplete?.(selectedOption, nextProgress);
+
     if (currentIndex >= scenarios.length - 1) {
       setViewMode("done");
       onComplete?.();

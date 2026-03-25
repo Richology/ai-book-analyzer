@@ -36,6 +36,15 @@ import {
   starterBooksById,
   type StarterBookData,
 } from "@/src/data/starterBooks";
+import {
+  DEFAULT_ADDICTION_STATE,
+  getAddictionState,
+  inferDecisionPattern,
+  resetDecisionRound,
+  setAddictionState,
+  type AddictionState,
+} from "@/lib/addictionSystem";
+import type { DecisionOptionKey } from "@/types/decision";
 
 type Chapter = {
   id: string;
@@ -723,7 +732,9 @@ export default function Home() {
   const [hasShownReturningUserToast, setHasShownReturningUserToast] = useState(false);
   const [showFabRedDot, setShowFabRedDot] = useState(false);
   const fabMenuRef = useRef<FabMenuHandle>(null);
+  const lastUploadPromptBookIdRef = useRef<string | null>(null);
 
+  const [addictionState, setAddictionStateLocal] = useState<AddictionState>(DEFAULT_ADDICTION_STATE);
   const cardSectionRef = useRef<HTMLDivElement>(null);
   const [recentHistory, setRecentHistory] = useState<HistoryRecord[]>([]);
   const [historyToast, setHistoryToast] = useState("");
@@ -738,6 +749,11 @@ export default function Home() {
     isLoadingActionExtraction ||
     isLoadingViewValidation ||
     isLoadingIdeaSourceTracing;
+
+  const currentBookId = bookTitle ? buildDecisionBookId(bookTitle) : null;
+  const decisionPowerBars = `${"█".repeat(Math.min(addictionState.decision_score, 5))}${"░".repeat(
+    Math.max(0, 5 - Math.min(addictionState.decision_score, 5))
+  )}`;
 
   // Load history + onboarding progress on mount
   useEffect(() => {
@@ -761,6 +777,15 @@ export default function Home() {
       history.length === 0 && onboardingStep === "none" && !starterSeen && !starterBookId
     );
   }, []);
+
+  useEffect(() => {
+    if (!currentBookId) {
+      setAddictionStateLocal(DEFAULT_ADDICTION_STATE);
+      return;
+    }
+
+    setAddictionStateLocal(getAddictionState(currentBookId));
+  }, [currentBookId]);
 
   // Save to history when analysis completes
   useEffect(() => {
@@ -863,6 +888,24 @@ export default function Home() {
     setPendingDeleteId(null);
   }, []);
 
+  const applyAddictionState = useCallback((nextState: AddictionState) => {
+    setAddictionStateLocal(nextState);
+    if (currentBookId) {
+      setAddictionState(currentBookId, nextState);
+    }
+  }, [currentBookId]);
+
+  const updateCurrentBookAddictionState = useCallback(
+    (updater: (prev: AddictionState) => AddictionState) => {
+      if (!currentBookId) return DEFAULT_ADDICTION_STATE;
+
+      const nextState = updater(getAddictionState(currentBookId));
+      applyAddictionState(nextState);
+      return nextState;
+    },
+    [applyAddictionState, currentBookId]
+  );
+
   const cancelDelete = useCallback(() => {
     if (pendingDeleteTimerRef.current !== null) {
       window.clearTimeout(pendingDeleteTimerRef.current);
@@ -961,6 +1004,7 @@ export default function Home() {
     setDecisionError("");
     setSeenCardKeys([]);
     setCurrentStarterBookId(null);
+    setAddictionStateLocal(DEFAULT_ADDICTION_STATE);
   }, []);
 
   const restoreFromHistory = useCallback((record: HistoryRecord) => {
@@ -1334,6 +1378,8 @@ export default function Home() {
     }
 
     const bookId = buildDecisionBookId(bookTitle);
+    applyAddictionState(resetDecisionRound(bookId));
+
     const cached = loadDecisionScenarioCache(bookId);
     if (cached.length === 3) {
       setDecisionScenarios(cached);
@@ -1374,7 +1420,7 @@ export default function Home() {
     } finally {
       setIsDecisionLoading(false);
     }
-  }, [bookTitle, getDecisionCardsInput]);
+  }, [applyAddictionState, bookTitle, getDecisionCardsInput]);
 
   const applyStarterBook = useCallback((starterBook: StarterBookData) => {
     resetAllState();
@@ -1531,29 +1577,29 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (message !== "分析完成" || isAnalyzing || !bookTitle || !selectedFile) return;
-    if (!isBeforeOnboardingStep(onboardingProgress, "analyzed")) return;
+    if (message !== "分析完成" || isAnalyzing || !bookTitle || !selectedFile || !currentBookId) return;
+    if (lastUploadPromptBookIdRef.current === currentBookId) return;
 
     enqueueGuidanceToast({
-      id: "onboarding-analyzed",
-      message: "🎯 已生成你的6张卡片\n👉 用1分钟试试真实场景决策",
-      actionText: "开始训练",
-      onAction: () => {
-        void handleOpenDecisionTraining();
-      },
+      id: `addiction-upload-${currentBookId}`,
+      message: "这本书已经准备好了\n先浏览几张卡片，抓住它的核心结构",
       priority: 1,
-      durationMs: 10000,
+      durationMs: 5000,
     });
-    advanceOnboardingProgress("analyzed");
+    lastUploadPromptBookIdRef.current = currentBookId;
+
+    if (isBeforeOnboardingStep(onboardingProgress, "analyzed")) {
+      advanceOnboardingProgress("analyzed");
+    }
   }, [
     message,
     isAnalyzing,
     bookTitle,
     selectedFile,
+    currentBookId,
     onboardingProgress,
     advanceOnboardingProgress,
     enqueueGuidanceToast,
-    handleOpenDecisionTraining,
   ]);
 
   const handleAnalyze = async () => {
@@ -1753,6 +1799,33 @@ export default function Home() {
   }, [currentImmersiveCard, bookTitle]);
 
   useEffect(() => {
+    if (!currentBookId) return;
+
+    const nextViewedCount = Math.max(addictionState.viewed_cards_count, seenCardKeys.length);
+    if (nextViewedCount === addictionState.viewed_cards_count) return;
+
+    applyAddictionState({
+      ...addictionState,
+      viewed_cards_count: nextViewedCount,
+    });
+
+    if (nextViewedCount === 1) {
+      enqueueGuidanceToast({
+        id: `addiction-browse-${currentBookId}`,
+        message: "继续浏览，你会更快抓住这本书的结构",
+        priority: 2,
+        durationMs: 5000,
+      });
+    }
+  }, [
+    addictionState,
+    applyAddictionState,
+    currentBookId,
+    enqueueGuidanceToast,
+    seenCardKeys.length,
+  ]);
+
+  useEffect(() => {
     const expandedKeys = Object.entries(expandedCards)
       .filter(([, expanded]) => expanded)
       .map(([key]) => key);
@@ -1763,13 +1836,14 @@ export default function Home() {
   }, [expandedCards]);
 
   useEffect(() => {
-    if (seenCardKeys.length < 3) return;
+    if (!currentBookId) return;
+    if (addictionState.viewed_cards_count < 3) return;
+    if (addictionState.has_triggered_training_prompt) return;
     if (!hasCompleteDecisionCards(getDecisionCardsInput())) return;
-    if (!isBeforeOnboardingStep(onboardingProgress, "viewed_cards")) return;
 
     enqueueGuidanceToast({
-      id: "onboarding-viewed-cards",
-      message: "📚 你已经理解这本书的核心\n👉 要不要试试“用出来”？",
+      id: `addiction-training-prompt-${currentBookId}`,
+      message: "你已经开始理解这本书的核心结构\n👉 试试一个真实场景？",
       actionText: "开始决策训练",
       onAction: () => {
         void handleOpenDecisionTraining();
@@ -1777,12 +1851,22 @@ export default function Home() {
       priority: 1,
       durationMs: 10000,
     });
-    advanceOnboardingProgress("viewed_cards");
+
+    applyAddictionState({
+      ...addictionState,
+      has_triggered_training_prompt: true,
+    });
+
+    if (isBeforeOnboardingStep(onboardingProgress, "viewed_cards")) {
+      advanceOnboardingProgress("viewed_cards");
+    }
   }, [
-    seenCardKeys,
-    onboardingProgress,
+    currentBookId,
+    addictionState,
     getDecisionCardsInput,
     handleOpenDecisionTraining,
+    applyAddictionState,
+    onboardingProgress,
     advanceOnboardingProgress,
     enqueueGuidanceToast,
   ]);
@@ -2187,7 +2271,7 @@ export default function Home() {
 
               {/* View mode toggle */}
               {immersiveCardList.length > 0 && (
-                <div ref={cardSectionRef} className="flex items-center mb-8">
+                <div ref={cardSectionRef} className="mb-8 flex items-center justify-between gap-4">
                   <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
                     <button
                       onClick={() => setViewMode("card")}
@@ -2214,6 +2298,16 @@ export default function Home() {
                       沉浸阅读
                     </button>
                   </div>
+                  {currentBookId && (
+                    <div className="shrink-0 text-right">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400">
+                        决策力
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-gray-700">
+                        {decisionPowerBars}
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2283,6 +2377,39 @@ export default function Home() {
                   onBackToCards={() => {
                     setIsDecisionPanelOpen(false);
                     cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  onAnswerComplete={(option: DecisionOptionKey, progress: number) => {
+                    if (!currentBookId) return;
+
+                    const nextState = updateCurrentBookAddictionState((prev) => ({
+                      ...prev,
+                      decision_training_progress: progress,
+                      decision_history: [...prev.decision_history, option],
+                      decision_score: prev.decision_score + 1,
+                    }));
+
+                    if (progress === 2) {
+                      setActiveToast({
+                        id: `addiction-tension-${currentBookId}`,
+                        message: "再做1题，你会看到你的决策模式",
+                        durationMs: 10000,
+                        showCloseButton: true,
+                        dismissible: true,
+                      });
+                    }
+
+                    if (progress >= 3) {
+                      const patternMessage = inferDecisionPattern(nextState.decision_history);
+                      if (patternMessage) {
+                        setActiveToast({
+                          id: `addiction-pattern-${currentBookId}`,
+                          message: patternMessage,
+                          durationMs: 0,
+                          showCloseButton: true,
+                          dismissible: true,
+                        });
+                      }
+                    }
                   }}
                   onComplete={() => {
                     if (!isBeforeOnboardingStep(onboardingProgress, "trained")) return;
