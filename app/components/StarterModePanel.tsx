@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import type { StarterBookData } from "@/src/data/starterBooks";
 
@@ -18,6 +19,22 @@ export function StarterModePanel({
   onSelectBook: (bookId: string) => void;
   onChooseUpload: () => void;
 }) {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setProgress(0);
+      return;
+    }
+    // 缓动进度条：快速到 60%，然后慢慢到 90%，完成时跳到 100%
+    setProgress(0);
+    const t1 = setTimeout(() => setProgress(30), 200);
+    const t2 = setTimeout(() => setProgress(55), 800);
+    const t3 = setTimeout(() => setProgress(75), 1600);
+    const t4 = setTimeout(() => setProgress(90), 2400);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4); };
+  }, [isLoading]);
+
   return (
     <section id="starter-books-section" className="mb-10 overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-card">
       <div className="px-6 pt-5 pb-3 text-center md:px-8 md:pt-6 md:pb-4">
@@ -41,7 +58,14 @@ export function StarterModePanel({
             <h3 className="text-lg font-semibold text-gray-950 md:text-xl">
               正在为你准备这本书
             </h3>
-            <p className="mt-2 text-sm leading-7 text-gray-500">{loadingStep}</p>
+            <p className="mt-2 text-sm leading-7 text-gray-500 transition-opacity duration-300">{loadingStep}</p>
+            {/* 进度条 */}
+            <div className="mx-auto mt-5 h-1.5 max-w-[240px] overflow-hidden rounded-full bg-gray-200">
+              <div
+                className="h-full rounded-full bg-gray-700 transition-all duration-500 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
         ) : (
           <>

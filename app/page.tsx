@@ -93,9 +93,10 @@ const RETURNING_USER_TOAST_SESSION_KEY = "bookleap_returning_user_toast_seen";
 const HISTORY_REORGANIZED_KEY = "bookleap_history_reorganized_shown";
 const FAB_HISTORY_SEEN_KEY = "bookleap_fab_history_seen";
 const STARTER_LOADING_STEPS = [
-  "正在解析全书结构…",
-  "正在提炼核心观点…",
-  "正在生成认知卡片…",
+  { text: "正在解析全书结构…", duration: 700 },
+  { text: "正在提炼核心观点…", duration: 800 },
+  { text: "正在生成认知卡片…", duration: 900 },
+  { text: "正在整理分析结果…", duration: 600 },
 ] as const;
 
 type HistoryRecord = {
@@ -726,7 +727,7 @@ export default function Home() {
   const [isStarterModeVisible, setIsStarterModeVisible] = useState(false);
   const [selectedStarterBookId, setSelectedStarterBookIdState] = useState("");
   const [isStarterLoading, setIsStarterLoading] = useState(false);
-  const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0]);
+  const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0].text);
   const [currentStarterBookId, setCurrentStarterBookId] = useState<string | null>(null);
   const [hasShownStarterEntryToast, setHasShownStarterEntryToast] = useState(false);
   const [hasShownReturningUserToast, setHasShownReturningUserToast] = useState(false);
@@ -1445,7 +1446,7 @@ export default function Home() {
     markStarterModeSeen();
     setIsStarterModeVisible(false);
     setIsStarterLoading(false);
-    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0].text);
     setSelectedStarterBookIdState("");
     setSelectedStarterBookId("");
   };
@@ -1463,7 +1464,7 @@ export default function Home() {
     setHasShownStarterEntryToast(true);
     setIsStarterModeVisible(true);
     setIsStarterLoading(false);
-    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0].text);
   }, []);
 
   const handleShowStarterModeFromToast = useCallback(() => {
@@ -1561,16 +1562,31 @@ export default function Home() {
     setSelectedStarterBookIdState(starterBookId);
     setSelectedStarterBookId(starterBookId);
     setIsStarterLoading(true);
-    setStarterLoadingStep(STARTER_LOADING_STEPS[0]);
+    setStarterLoadingStep(STARTER_LOADING_STEPS[0].text);
 
     try {
       for (const step of STARTER_LOADING_STEPS) {
-        setStarterLoadingStep(step);
-        await new Promise((resolve) => setTimeout(resolve, 450));
+        setStarterLoadingStep(step.text);
+        await new Promise((resolve) => setTimeout(resolve, step.duration));
       }
 
       applyStarterBook(starterBook);
       setIsStarterModeVisible(false);
+
+      // 解析完成后自动滚动到卡片区域
+      setTimeout(() => {
+        cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
+
+      // 滚动到位后弹出引导 toast
+      setTimeout(() => {
+        enqueueGuidanceToast({
+          id: `starter-book-ready-${starterBookId}`,
+          message: "✨ 解析完成，左右滑动浏览卡片\n从第一张开始，快速抓住这本书的核心",
+          priority: 0,
+          durationMs: 5000,
+        });
+      }, 600);
     } finally {
       setIsStarterLoading(false);
     }
