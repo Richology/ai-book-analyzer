@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useModalTransition } from "@/app/hooks/useModalTransition";
 
 export type ExportFormat = "md" | "txt" | "json";
 export type ExportStructure = "multi" | "single";
@@ -160,6 +161,7 @@ export function ExportModal({
   const [selectedIds, setSelectedIds] = useState<string[]>(
     availableSections.map((s) => s.id)
   );
+  const { handleClose, overlayStyle, panelStyle } = useModalTransition(onClose);
 
   const toggleSection = (id: string) => {
     setSelectedIds((prev) =>
@@ -184,6 +186,7 @@ export function ExportModal({
           display: "flex", alignItems: "center", justifyContent: "center",
           background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)",
           padding: "20px 16px", fontFamily: FONT,
+          ...overlayStyle,
         }}
       >
         <div
@@ -191,12 +194,13 @@ export function ExportModal({
             width: "100%", maxWidth: 420, background: "#fff",
             borderRadius: 20, boxShadow: "0 24px 72px rgba(0,0,0,0.18)",
             overflow: "hidden",
+            ...panelStyle,
           }}
         >
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px 16px", borderBottom: "1px solid #f3f4f6" }}>
             <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "#111827" }}>导出知识包</p>
-            <button onClick={onClose} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", border: "none", background: "transparent", cursor: "pointer", color: "#9ca3af", fontSize: 14 }}>✕</button>
+            <button onClick={handleClose} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", border: "none", background: "transparent", cursor: "pointer", color: "#9ca3af", fontSize: 14 }}>✕</button>
           </div>
 
           {/* Body */}
@@ -220,7 +224,7 @@ export function ExportModal({
               再导出一个
             </button>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               style={{ flex: 1, padding: "10px 0", borderRadius: 12, border: "none", background: "#111827", fontSize: 14, fontWeight: 600, color: "#ffffff", cursor: "pointer", fontFamily: FONT }}
             >
               关闭
@@ -239,9 +243,10 @@ export function ExportModal({
         display: "flex", alignItems: "center", justifyContent: "center",
         background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)",
         padding: "20px 16px", fontFamily: FONT,
+        ...overlayStyle,
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !isExporting) onClose();
+        if (e.target === e.currentTarget && !isExporting) handleClose();
       }}
     >
       <div
@@ -250,13 +255,14 @@ export function ExportModal({
           borderRadius: 20, boxShadow: "0 24px 72px rgba(0,0,0,0.18)",
           maxHeight: "90vh", display: "flex", flexDirection: "column",
           overflow: "hidden",
+          ...panelStyle,
         }}
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px 16px", borderBottom: "1px solid #f3f4f6", flexShrink: 0 }}>
           <p style={{ margin: 0, fontSize: 15, fontWeight: 600, color: "#111827" }}>导出知识包</p>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isExporting}
             style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "50%", border: "none", background: "transparent", cursor: isExporting ? "default" : "pointer", color: "#9ca3af", fontSize: 14 }}
           >
@@ -329,7 +335,7 @@ export function ExportModal({
         {/* Actions */}
         <div style={{ flexShrink: 0, display: "flex", gap: 10, padding: "16px 24px", borderTop: "1px solid #f3f4f6" }}>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isExporting}
             style={{ flex: 1, padding: "10px 0", borderRadius: 12, border: "1px solid #e5e7eb", background: "transparent", fontSize: 14, color: "#6b7280", cursor: isExporting ? "default" : "pointer", fontFamily: FONT }}
           >

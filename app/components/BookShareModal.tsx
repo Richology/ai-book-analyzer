@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useModalTransition } from "@/app/hooks/useModalTransition";
 
 const CARD_W = 540;
 const CARD_FONT =
@@ -17,6 +18,7 @@ export function BookShareModal({
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const { handleClose, overlayStyle, panelStyle } = useModalTransition(onClose);
 
   const handleSave = async () => {
     if (!cardRef.current) return;
@@ -95,9 +97,10 @@ export function BookShareModal({
         backdropFilter: "blur(6px)",
         padding: "20px 16px",
         fontFamily: CARD_FONT,
+        ...overlayStyle,
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       {/* Modal shell */}
@@ -112,6 +115,7 @@ export function BookShareModal({
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
+          ...panelStyle,
         }}
       >
         {/* Modal header bar */}
@@ -136,7 +140,7 @@ export function BookShareModal({
             整书分享卡预览
           </p>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               width: 28,
               height: 28,
@@ -291,7 +295,7 @@ export function BookShareModal({
           }}
         >
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               flex: 1,
               borderRadius: 12,

@@ -6,6 +6,7 @@ import { MinimalWhitePoster } from "./MinimalWhitePoster";
 import { AICodePoster } from "./AICodePoster";
 import { CutePoster } from "./CutePoster";
 import { MagazinePoster } from "./MagazinePoster";
+import { useModalTransition } from "@/app/hooks/useModalTransition";
 
 /** Design width of all poster templates */
 const POSTER_W = 1080;
@@ -45,6 +46,7 @@ export function PosterPreviewModal({
   const exportRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const { handleClose, overlayStyle, panelStyle } = useModalTransition(onClose);
 
   const activeTemplate = TEMPLATES[activeIdx].id;
 
@@ -83,11 +85,11 @@ export function PosterPreviewModal({
         setActiveIdx((i) => (i - 1 + TEMPLATES.length) % TEMPLATES.length);
       if (e.key === "ArrowRight")
         setActiveIdx((i) => (i + 1) % TEMPLATES.length);
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
+  }, [handleClose]);
 
   /* ── Stable image export ── */
   const handleSave = async () => {
@@ -193,8 +195,9 @@ export function PosterPreviewModal({
         justifyContent: "center",
         background: "rgba(0,0,0,0.6)",
         backdropFilter: "blur(8px)",
+        ...overlayStyle,
       }}
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -206,6 +209,7 @@ export function PosterPreviewModal({
           gap: 20,
           width: "100%",
           maxWidth: 900,
+          ...panelStyle,
         }}
       >
         {/* ── Hidden full-size export node ── */}
@@ -329,7 +333,7 @@ export function PosterPreviewModal({
         {/* ── Action buttons ── */}
         <div style={{ display: "flex", gap: 12 }}>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             style={{
               padding: "10px 28px",
               borderRadius: 12,

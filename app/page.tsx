@@ -1085,7 +1085,6 @@ export default function Home() {
   ) => {
     try {
       setIsLoadingIdeaSourceTracing(true);
-      setMessage("正在生成思想溯源...");
       const res = await fetch("/api/skills/idea-source-tracing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1094,7 +1093,6 @@ export default function Home() {
       const data = await res.json();
       if (data.success) {
         setIdeaSourceTracing(data.ideaSourceTracing || "");
-        setMessage("分析完成");
       }
     } catch (error) {
       console.error("思想溯源生成失败:", error);
@@ -1107,11 +1105,9 @@ export default function Home() {
     title: string,
     bookSummary: string,
     chapters: Chapter[],
-    viewMapResult: string
   ) => {
     try {
       setIsLoadingViewValidation(true);
-      setMessage("正在生成观点校验...");
       const res = await fetch("/api/skills/view-validation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1125,7 +1121,6 @@ export default function Home() {
       console.error("观点校验生成失败:", error);
     } finally {
       setIsLoadingViewValidation(false);
-      fetchIdeaSourceTracing(title, bookSummary, viewMapResult);
     }
   };
 
@@ -1133,11 +1128,9 @@ export default function Home() {
     title: string,
     bookSummary: string,
     chapters: Chapter[],
-    viewMapResult: string
   ) => {
     try {
       setIsLoadingActionExtraction(true);
-      setMessage("正在生成行动提炼...");
       const res = await fetch("/api/skills/action-extraction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1151,7 +1144,6 @@ export default function Home() {
       console.error("行动提炼生成失败:", error);
     } finally {
       setIsLoadingActionExtraction(false);
-      fetchViewValidation(title, bookSummary, chapters, viewMapResult);
     }
   };
 
@@ -1178,8 +1170,16 @@ export default function Home() {
       console.error("观点地图生成失败:", error);
     } finally {
       setIsLoadingViewMap(false);
-      fetchActionExtraction(title, bookSummary, chapters, viewMapResult);
     }
+
+    // 观点地图完成后，后三步并行执行（它们之间无数据依赖）
+    setMessage("正在生成剩余分析...");
+    await Promise.all([
+      fetchActionExtraction(title, bookSummary, chapters),
+      fetchViewValidation(title, bookSummary, chapters),
+      fetchIdeaSourceTracing(title, bookSummary, viewMapResult),
+    ]);
+    setMessage("分析完成");
   };
 
   const fetchReadingGuide = async (
@@ -1278,7 +1278,7 @@ export default function Home() {
         }),
       });
       if (!res.ok) {
-        alert("导出失败，请稍后重试。");
+        enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: 0, durationMs: 4000 });
         setExportStatus("idle");
         return;
       }
@@ -1306,7 +1306,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error(error);
-      alert("导出失败，请稍后重试。");
+      enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: 0, durationMs: 4000 });
       setExportStatus("idle");
     }
   };
@@ -1690,6 +1690,13 @@ export default function Home() {
     } catch (error) {
       console.error(error);
       setMessage("请求失败，请稍后重试。");
+      // 重置所有子 loading 状态，防止页面永久显示 loading 骨架屏
+      setIsLoadingBookSummary(false);
+      setIsLoadingReadingGuide(false);
+      setIsLoadingViewMap(false);
+      setIsLoadingActionExtraction(false);
+      setIsLoadingViewValidation(false);
+      setIsLoadingIdeaSourceTracing(false);
     } finally {
       setIsLoading(false);
     }
@@ -2176,7 +2183,14 @@ export default function Home() {
                   return (
                     <div
                       key={record.id}
-                      onClick={() => { if (!isPending) restoreFromHistory(record); }}
+                      onClick={() => {
+                        if (!isPending) {
+                          restoreFromHistory(record);
+                          setTimeout(() => {
+                            cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 80);
+                        }
+                      }}
                       className={`group flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-100 shadow-card px-4 py-3 transition-all duration-200 ${
                         isPending
                           ? "opacity-40 scale-[0.98] pointer-events-none select-none"
@@ -2243,25 +2257,29 @@ export default function Home() {
                   {bookTitle}
                 </h2>
                 <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
-                  {bookTitle && hasCompleteDecisionCards(getDecisionCardsInput()) && !isAnalyzing && (
-                    <button
-                      onClick={handleOpenDecisionTraining}
-                      disabled={isDecisionLoading}
-                      className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-950 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50 sm:w-auto"
-                    >
-                      {isDecisionLoading ? (
-                        <>
-                          <span className="relative flex h-1.5 w-1.5 shrink-0">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-300 opacity-75" />
-                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
-                          </span>
-                          生成中…
-                        </>
-                      ) : (
-                        "开始决策训练"
-                      )}
-                    </button>
-                  )}
+                  {bookTitle && !isAnalyzing && (() => {
+                    const cardsReady = hasCompleteDecisionCards(getDecisionCardsInput());
+                    return (
+                      <button
+                        onClick={handleOpenDecisionTraining}
+                        disabled={isDecisionLoading || !cardsReady}
+                        title={cardsReady ? undefined : "完成全部分析卡片后可开始决策训练"}
+                        className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-950 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
+                      >
+                        {isDecisionLoading ? (
+                          <>
+                            <span className="relative flex h-1.5 w-1.5 shrink-0">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-300 opacity-75" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+                            </span>
+                            生成中…
+                          </>
+                        ) : (
+                          "开始决策训练"
+                        )}
+                      </button>
+                    );
+                  })()}
                   {(!isLiteMode || isLiteUnlocked) && (
                     <button
                       onClick={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
