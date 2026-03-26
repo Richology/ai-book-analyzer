@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -45,6 +45,13 @@ import {
   type AddictionState,
 } from "@/lib/addictionSystem";
 import type { DecisionOptionKey } from "@/types/decision";
+import {
+  type GuidanceToast,
+  TOAST_PRIORITY,
+  shouldPreempt,
+  insertIntoQueue,
+  findEligibleIndex,
+} from "@/app/lib/toastScheduler";
 
 type Chapter = {
   id: string;
@@ -67,17 +74,6 @@ type ShareModalState = {
   bookTitle: string;
 } | null;
 
-type GuidanceToast = {
-  id: string;
-  message: string | ReactNode;
-  actionText?: string;
-  onAction?: () => void;
-  durationMs?: number;
-  priority?: number;
-  isPersistent?: boolean;
-  showCloseButton?: boolean;
-  dismissible?: boolean;
-};
 
 // ── Share card content helpers ─────────────────────────────────────────────────
 
@@ -830,7 +826,7 @@ export default function Home() {
         onAction: () => {
           fabMenuRef.current?.open();
         },
-        priority: 4,
+        priority: TOAST_PRIORITY.INFO,
         durationMs: 10000,
       });
     }
@@ -848,22 +844,36 @@ export default function Home() {
   }, []);
 
   const enqueueGuidanceToast = useCallback((toast: GuidanceToast) => {
-    setToastQueue((prev) => {
-      if (activeToast?.id === toast.id || prev.some((item) => item.id === toast.id)) {
-        return prev;
+    // 高优先级 toast 抢占当前正在显示的低优先级 toast
+    setActiveToast((current) => {
+      if (shouldPreempt(current, toast)) {
+        // 被挤掉的 toast 放回队列（系统级 toast 不放回）
+        if (current && current.priority > TOAST_PRIORITY.SYSTEM) {
+          setToastQueue((prev) => insertIntoQueue(prev, current, toast.id));
+        }
+        return toast;
       }
-      const next = [...prev, toast];
-      return next.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      // 不抢占，入队等待
+      setToastQueue((prev) => insertIntoQueue(prev, toast, current?.id));
+      return current;
     });
-  }, [activeToast]);
+  }, []);
 
   useEffect(() => {
     if (activeToast || toastQueue.length === 0) return;
 
-    const remainingDelay = Math.max(0, 10000 - (Date.now() - lastToastClosedAt));
+    // 高优先级 toast（P0/P1）不受冷却期限制
+    const nextPriority = toastQueue[0].priority;
+    const cooldown = nextPriority <= TOAST_PRIORITY.COGNITIVE ? 0 : 10000;
+    const remainingDelay = Math.max(0, cooldown - (Date.now() - lastToastClosedAt));
+
     const timer = window.setTimeout(() => {
-      setActiveToast(toastQueue[0]);
-      setToastQueue((prev) => prev.slice(1));
+      setToastQueue((prev) => {
+        const idx = findEligibleIndex(prev);
+        if (idx === -1) return []; // 全部不合格，清空
+        setActiveToast(prev[idx]);
+        return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      });
     }, remainingDelay);
 
     return () => window.clearTimeout(timer);
@@ -936,14 +946,31 @@ export default function Home() {
       commitDelete(id);
     }, 10000);
 
-    // Show undo toast via the active toast slot (bypasses queue for immediacy)
-    setActiveToast({
+    // Show undo toast via unified queue (P0 = SYSTEM, will preempt any lower toast)
+    enqueueGuidanceToast({
       id: `delete-undo-${id}`,
       message: `已删除《${title}》\n10 秒后永久删除`,
+      priority: TOAST_PRIORITY.SYSTEM,
       durationMs: 10000,
+      showCloseButton: false,
+      dismissible: false,
+      actionText: "撤销",
+      onAction: () => {
+        cancelDelete();
+        setActiveToast(null);
+        setLastToastClosedAt(Date.now());
+        setDeleteUndoActions(null);
+      },
+      secondaryActionText: "立即删除",
+      onSecondaryAction: () => {
+        commitDelete(id);
+        setActiveToast(null);
+        setLastToastClosedAt(Date.now());
+        setDeleteUndoActions(null);
+      },
     });
     setDeleteUndoActions({ id, title });
-  }, [pendingDeleteId, recentHistory, commitDelete]);
+  }, [pendingDeleteId, recentHistory, commitDelete, cancelDelete, enqueueGuidanceToast]);
 
   const [deleteUndoActions, setDeleteUndoActions] = useState<{ id: string; title: string } | null>(null);
 
@@ -1278,7 +1305,7 @@ export default function Home() {
         }),
       });
       if (!res.ok) {
-        enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: 0, durationMs: 4000 });
+        enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: TOAST_PRIORITY.SYSTEM, durationMs: 4000 });
         setExportStatus("idle");
         return;
       }
@@ -1299,14 +1326,14 @@ export default function Home() {
           onAction: () => {
             void handleGeneratePoster();
           },
-          priority: 4,
+          priority: TOAST_PRIORITY.INFO,
           durationMs: 10000,
         });
         advanceOnboardingProgress("exported");
       }
     } catch (error) {
       console.error(error);
-      enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: 0, durationMs: 4000 });
+      enqueueGuidanceToast({ id: "export-failed", message: "导出失败，请稍后重试", priority: TOAST_PRIORITY.SYSTEM, durationMs: 4000 });
       setExportStatus("idle");
     }
   };
@@ -1500,11 +1527,13 @@ export default function Home() {
         message: "🎁 新功能：我们送你3本书，试试吗？",
         actionText: "去看看",
         onAction: handleShowStarterModeFromToast,
-        priority: 2,
+        priority: TOAST_PRIORITY.ENTRY,
         isPersistent: true,
         durationMs: 0,
         showCloseButton: true,
         dismissible: true,
+        eligibilityCheck: () =>
+          !hasSeenStarterMode() && !getSelectedStarterBookId(),
       });
       markStarterEntryToastSeenThisSession();
       setHasShownStarterEntryToast(true);
@@ -1545,8 +1574,10 @@ export default function Home() {
             cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }, 80);
         },
-        priority: 3,
+        priority: TOAST_PRIORITY.ENTRY,
         durationMs: 10000,
+        eligibilityCheck: () =>
+          !hasSeenStarterMode() || !!getSelectedStarterBookId(),
       });
       markReturningUserToastSeenThisSession();
       setHasShownReturningUserToast(true);
@@ -1591,7 +1622,7 @@ export default function Home() {
         enqueueGuidanceToast({
           id: `starter-book-ready-${starterBookId}`,
           message: "✨ 解析完成，左右滑动浏览卡片\n从第一张开始，快速抓住这本书的核心",
-          priority: 0,
+          priority: TOAST_PRIORITY.GUIDANCE,
           durationMs: 5000,
         });
       }, 600);
@@ -1607,7 +1638,7 @@ export default function Home() {
     enqueueGuidanceToast({
       id: `addiction-upload-${currentBookId}`,
       message: "这本书已经准备好了\n先浏览几张卡片，抓住它的核心结构",
-      priority: 1,
+      priority: TOAST_PRIORITY.COGNITIVE,
       durationMs: 5000,
     });
     lastUploadPromptBookIdRef.current = currentBookId;
@@ -1844,7 +1875,7 @@ export default function Home() {
       enqueueGuidanceToast({
         id: `addiction-browse-${currentBookId}`,
         message: "继续浏览，你会更快抓住这本书的结构",
-        priority: 2,
+        priority: TOAST_PRIORITY.GUIDANCE,
         durationMs: 5000,
       });
     }
@@ -1879,7 +1910,7 @@ export default function Home() {
       onAction: () => {
         void handleOpenDecisionTraining();
       },
-      priority: 1,
+      priority: TOAST_PRIORITY.GUIDANCE,
       durationMs: 10000,
     });
 
@@ -2431,9 +2462,10 @@ export default function Home() {
                     }));
 
                     if (progress === 2) {
-                      setActiveToast({
+                      enqueueGuidanceToast({
                         id: `addiction-tension-${currentBookId}`,
                         message: "再做1题，你会看到你的决策模式",
+                        priority: TOAST_PRIORITY.GUIDANCE,
                         durationMs: 10000,
                         showCloseButton: true,
                         dismissible: true,
@@ -2443,10 +2475,12 @@ export default function Home() {
                     if (progress >= 3) {
                       const patternMessage = inferDecisionPattern(nextState.decision_history);
                       if (patternMessage) {
-                        setActiveToast({
+                        enqueueGuidanceToast({
                           id: `addiction-pattern-${currentBookId}`,
                           message: patternMessage,
+                          priority: TOAST_PRIORITY.COGNITIVE,
                           durationMs: 0,
+                          isPersistent: true,
                           showCloseButton: true,
                           dismissible: true,
                         });
@@ -2463,7 +2497,7 @@ export default function Home() {
                         setExportStatus("idle");
                         setIsExportModalOpen(true);
                       },
-                      priority: 4,
+                      priority: TOAST_PRIORITY.INFO,
                       durationMs: 10000,
                     });
                     advanceOnboardingProgress("trained");
@@ -2779,47 +2813,30 @@ export default function Home() {
       )}
 
       {activeToast && (
-        deleteUndoActions && activeToast.id === `delete-undo-${deleteUndoActions.id}` ? (
-          <Toast
-            message={activeToast.message}
-            durationMs={10000}
-            showCloseButton={false}
-            dismissible={false}
-            onClose={() => {
-              // Auto-close means timer expired — commit happens via pendingDeleteTimerRef
-              setActiveToast(null);
-              setLastToastClosedAt(Date.now());
+        <Toast
+          message={activeToast.message}
+          actionText={activeToast.actionText}
+          onAction={activeToast.onAction ? () => {
+            activeToast.onAction?.();
+            // onAction 内部已处理 setActiveToast(null) 的情况（如删除撤销）
+            // 对于普通 toast，onAction 后自动关闭由 Toast 组件内部处理
+          } : undefined}
+          secondaryActionText={activeToast.secondaryActionText}
+          onSecondaryAction={activeToast.onSecondaryAction ? () => {
+            activeToast.onSecondaryAction?.();
+          } : undefined}
+          durationMs={activeToast.isPersistent ? 0 : (activeToast.durationMs ?? 10000)}
+          showCloseButton={activeToast.showCloseButton ?? true}
+          dismissible={activeToast.dismissible ?? true}
+          onClose={() => {
+            setActiveToast(null);
+            setLastToastClosedAt(Date.now());
+            // 删除撤销 toast 自动关闭时清理 undo 状态
+            if (activeToast.id.startsWith("delete-undo-")) {
               setDeleteUndoActions(null);
-            }}
-            actionText="撤销"
-            onAction={() => {
-              cancelDelete();
-              setActiveToast(null);
-              setLastToastClosedAt(Date.now());
-              setDeleteUndoActions(null);
-            }}
-            secondaryActionText="立即删除"
-            onSecondaryAction={() => {
-              commitDelete(deleteUndoActions.id);
-              setActiveToast(null);
-              setLastToastClosedAt(Date.now());
-              setDeleteUndoActions(null);
-            }}
-          />
-        ) : (
-          <Toast
-            message={activeToast.message}
-            actionText={activeToast.actionText}
-            onAction={activeToast.onAction}
-            durationMs={activeToast.isPersistent ? 0 : (activeToast.durationMs ?? 10000)}
-            showCloseButton={activeToast.showCloseButton ?? true}
-            dismissible={activeToast.dismissible ?? true}
-            onClose={() => {
-              setActiveToast(null);
-              setLastToastClosedAt(Date.now());
-            }}
-          />
-        )
+            }
+          }}
+        />
       )}
 
       <FabMenu
