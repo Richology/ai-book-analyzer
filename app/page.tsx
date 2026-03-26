@@ -714,6 +714,7 @@ export default function Home() {
   const [decisionScenarios, setDecisionScenarios] = useState<DecisionScenario[]>([]);
   const [isDecisionPanelOpen, setIsDecisionPanelOpen] = useState(false);
   const [isDecisionLoading, setIsDecisionLoading] = useState(false);
+  const [decisionLoadingStep, setDecisionLoadingStep] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [activeToast, setActiveToast] = useState<GuidanceToast | null>(null);
   const [toastQueue, setToastQueue] = useState<GuidanceToast[]>([]);
@@ -1396,6 +1397,8 @@ export default function Home() {
     insights: ideaSourceTracing,
   }), [bookSummary, readingGuide, viewMap, actionExtraction, criticalExamination, ideaSourceTracing]);
 
+  const DECISION_STEP_LABELS = ["正在生成第 1 题（职场场景）…", "正在生成第 2 题（个人成长）…", "正在生成第 3 题（高级决策）…"];
+
   const handleOpenDecisionTraining = useCallback(async () => {
     if (!bookTitle) return;
 
@@ -1419,23 +1422,26 @@ export default function Home() {
     try {
       setIsDecisionLoading(true);
       setDecisionError("");
-      const res = await fetch("/api/decision/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookTitle,
-          cards,
-        }),
-      });
-      const data = await res.json();
-      if (!data.success) {
-        setDecisionError(data.error || "决策训练生成失败，请稍后重试。");
-        return;
+      const scenarios: import("@/types/decision").DecisionScenario[] = [];
+
+      // 逐题生成，每完成一题立即更新进度
+      for (let i = 0; i < 3; i++) {
+        setDecisionLoadingStep(DECISION_STEP_LABELS[i]);
+        const res = await fetch("/api/decision/generate-one", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookTitle, cards, questionIndex: i }),
+        });
+        const data = await res.json();
+        if (!data.success || !data.scenario) {
+          setDecisionError(data.error || `第 ${i + 1} 题生成失败，请稍后重试。`);
+          return;
+        }
+        scenarios.push(data.scenario);
       }
 
-      const scenarios = normalizeDecisionScenarioList(data.scenarios, bookId);
       if (scenarios.length !== 3) {
-        setDecisionError(data.error || "这次生成的决策训练题格式不完整，请稍后再试。");
+        setDecisionError("决策训练题生成不完整，请稍后再试。");
         return;
       }
 
@@ -1447,6 +1453,7 @@ export default function Home() {
       setDecisionError("决策训练生成失败，请稍后重试。");
     } finally {
       setIsDecisionLoading(false);
+      setDecisionLoadingStep("");
     }
   }, [applyAddictionState, bookTitle, getDecisionCardsInput]);
 
@@ -2303,7 +2310,7 @@ export default function Home() {
                               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-300 opacity-75" />
                               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
                             </span>
-                            生成中…
+                            {decisionLoadingStep || "生成中…"}
                           </>
                         ) : (
                           "开始决策训练"

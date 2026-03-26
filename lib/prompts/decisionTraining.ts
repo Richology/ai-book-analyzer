@@ -213,3 +213,117 @@ export function DECISION_TRAINING_PROMPT(
 
 只输出 JSON，不要输出解释，不要输出 Markdown。`;
 }
+
+// ── 单题 prompt（逐题生成用） ──────────────────────────────────────────────────
+
+const ROLE_CONFIGS = [
+  {
+    roleType: "职场执行者",
+    role: "普通职场人 / 产品经理 / 工程师 / 运营 / 销售等",
+    scene: "真实具体的工作冲突",
+    focus: "执行、反馈、协作、现实压力、判断",
+    feel: "这像我在公司会遇到的问题",
+  },
+  {
+    roleType: "个人成长者",
+    role: "用户自己",
+    scene: "个人生活、自我提升、学习、习惯、情绪、拖延、长期成长",
+    focus: "短期舒服 vs 长期成长、情绪 vs 理性、自我要求 vs 自我欺骗",
+    feel: "这像我自己生活中的问题",
+  },
+  {
+    roleType: "决策者",
+    role: "老板 / 创业者 / 高级管理者 / 团队负责人",
+    scene: "系统性决策、用人、机制、文化、长期方向",
+    focus: "个体 vs 系统、关系 vs 原则、短期稳定 vs 长期正确",
+    feel: "这是更高层级的决策问题",
+  },
+] as const;
+
+export function DECISION_SINGLE_PROMPT(
+  bookTitle: string,
+  cards: DecisionCardsInput,
+  questionIndex: number
+): string {
+  const cfg = ROLE_CONFIGS[questionIndex] ?? ROLE_CONFIGS[0];
+
+  return `你是一个"认知决策训练设计师"。
+
+基于一本书的核心内容，生成 1 道"真实场景决策训练题"。
+
+----------------------------------
+【输入】
+书名：${bookTitle}
+
+卡片内容（6张卡片）：
+1. 全书摘要：${cards.summary}
+2. 阅读指南：${cards.readingGuide}
+3. 观点地图：${cards.viewMap}
+4. 行动原则：${cards.actionPrinciples}
+5. 方法模型：${cards.models}
+6. 关键洞察：${cards.insights}
+
+----------------------------------
+【本题要求】
+
+角色类型：${cfg.roleType}
+- 角色：${cfg.role}
+- 场景：${cfg.scene}
+- 重点：${cfg.focus}
+- 必须让用户感觉"${cfg.feel}"
+
+----------------------------------
+【题目结构】
+
+1. roleType：直接写"${cfg.roleType}"
+2. trainingAbility：一句简短的话，表示这道题在训练什么能力（必须具体，不能空泛）
+3. scene：真实具体的场景，有明显冲突，80~120字，要有代入感
+4. question：一句话提出问题
+5. options（A / B）：两个选项都必须"看起来合理"，不要明显对错，代表两种不同思维方式，不可兼得，每个选项隐含一种代价
+6. feedback（A / B 两套反馈）：
+   - empathy：说明很多人为什么会这样选
+   - analysis：解释这种选择背后的心理、习惯或局限
+   - upgrade：结合书中的原则/模型/方法，指出更高阶的理解
+   - action：给出一句可执行建议
+
+----------------------------------
+【关键要求】
+- 两个选项都必须"有明显代价"
+- 用户不能一眼判断哪个更优
+- 至少有一个选项要"看起来更舒服，但长期更差"
+- 至少有一个选项要"短期痛苦，但长期更优"
+- 不要出现"正确/错误"，用"更常见/更高阶/更优解"
+- 要明确对应书中的原则，而不是泛泛建议
+
+----------------------------------
+【输出格式（JSON）】
+
+请严格输出为 JSON 对象（不是数组），格式如下：
+
+{
+  "roleType": "${cfg.roleType}",
+  "trainingAbility": "...",
+  "scene": "...",
+  "question": "...",
+  "options": {
+    "A": "...",
+    "B": "..."
+  },
+  "feedback": {
+    "A": {
+      "empathy": "...",
+      "analysis": "...",
+      "upgrade": "...",
+      "action": "..."
+    },
+    "B": {
+      "empathy": "...",
+      "analysis": "...",
+      "upgrade": "...",
+      "action": "..."
+    }
+  }
+}
+
+只输出 JSON，不要输出解释，不要输出 Markdown。`;
+}
