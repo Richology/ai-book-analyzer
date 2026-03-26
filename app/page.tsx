@@ -1486,8 +1486,15 @@ export default function Home() {
   useEffect(() => {
     if (isStarterModeVisible || hasShownStarterEntryToast || isStarterLoading || hasBlockingToast) return;
     if (recentHistory.length === 0) return;
+    // 用户已选过 starter book → 不再提示
+    if (selectedStarterBookId) return;
+    // 用户已经历过 starter 流程（localStorage 持久标记）
+    if (hasSeenStarterMode()) return;
 
     const timer = window.setTimeout(() => {
+      // 延迟回调中重新检查状态，防止调度期间用户已操作
+      if (hasSeenStarterMode() || getSelectedStarterBookId()) return;
+
       enqueueGuidanceToast({
         id: "starter-mode-entry",
         message: "🎁 新功能：我们送你3本书，试试吗？",
@@ -1513,6 +1520,7 @@ export default function Home() {
     isStarterLoading,
     isStarterModeVisible,
     recentHistory.length,
+    selectedStarterBookId,
   ]);
 
   useEffect(() => {
