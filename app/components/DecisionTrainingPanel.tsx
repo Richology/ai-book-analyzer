@@ -220,11 +220,8 @@ export function DecisionTrainingPanel({
 
         {viewMode === "done" && (
           <div className="rounded-3xl border border-gray-100 bg-gray-50/70 px-6 py-8 text-center">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
-              训练完成
-            </p>
             <h4 className="text-2xl font-semibold text-gray-950 mb-3">
-              这一轮决策训练完成了
+              做完了！
             </h4>
             <p className="max-w-xl mx-auto text-sm leading-7 text-gray-600 mb-6">
               你已经把书里的观点带进真实情境里走了一遍。回到卡片时，可以再对照看看：哪些判断是习惯，哪些判断值得升级。

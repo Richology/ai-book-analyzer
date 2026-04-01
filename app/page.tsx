@@ -672,6 +672,27 @@ function ShareModal({
   );
 }
 
+/**
+ * Extract the core book title from metadata that may contain
+ * promotional text, recommendations, subtitles, etc.
+ * e.g. "掌控习惯（樊登读书创始人樊登博士倾力推荐）美国获奖无数..." → "掌控习惯"
+ */
+function cleanBookTitle(raw: string): string {
+  if (!raw) return raw;
+  // 1. Cut at first Chinese/English parenthesis, colon, long dash, or pipe
+  let title = raw.split(/[（(：:—|｜]/)[0].trim();
+  // 2. If still too long (>20 chars), try cutting at common separators
+  if (title.length > 20) {
+    const shorter = title.split(/[,，;；\s]{2,}/)[0].trim();
+    if (shorter.length >= 2) title = shorter;
+  }
+  // 3. Final safety: cap at 30 chars
+  if (title.length > 30) {
+    title = title.slice(0, 30);
+  }
+  return title || raw;
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -721,6 +742,7 @@ export default function Home() {
   const [toastQueue, setToastQueue] = useState<GuidanceToast[]>([]);
   const [lastToastClosedAt, setLastToastClosedAt] = useState(0);
   const [onboardingProgress, setOnboardingProgressState] = useState<OnboardingProgress>("none");
+  const [fallbackUnlocks, setFallbackUnlocks] = useState({ training: false, export: false });
   const [seenCardKeys, setSeenCardKeys] = useState<string[]>([]);
   const [isStarterModeVisible, setIsStarterModeVisible] = useState(false);
   const [selectedStarterBookId, setSelectedStarterBookIdState] = useState("");
@@ -1322,11 +1344,16 @@ export default function Home() {
       a.click();
       URL.revokeObjectURL(url);
       setExportStatus("success");
+      // 导出成功后清除"把这本书带走"的 toast
+      setActiveToast((current) => {
+        if (current?.id === "onboarding-trained") return null;
+        return current;
+      });
       if (isBeforeOnboardingStep(onboardingProgress, "exported")) {
         enqueueGuidanceToast({
           id: "onboarding-exported",
-          message: "📦 已导出\n👉 试试生成分享海报，让这本书变成你的表达",
-          actionText: "生成海报",
+          message: "把你的这次阅读成果分享出去",
+          actionText: "分享出去",
           onAction: () => {
             void handleGeneratePoster();
           },
@@ -1631,7 +1658,7 @@ export default function Home() {
       setTimeout(() => {
         enqueueGuidanceToast({
           id: `starter-book-ready-${starterBookId}`,
-          message: "✨ 解析完成，左右滑动浏览卡片\n从第一张开始，快速抓住这本书的核心",
+          message: "你可以开始阅读这本书的核心内容了\n👉 左右滑动卡片",
           priority: TOAST_PRIORITY.GUIDANCE,
           durationMs: 5000,
         });
@@ -1647,7 +1674,7 @@ export default function Home() {
 
     enqueueGuidanceToast({
       id: `addiction-upload-${currentBookId}`,
-      message: "这本书已经准备好了\n先浏览几张卡片，抓住它的核心结构",
+      message: "你可以开始阅读这本书的核心内容了\n👉 左右滑动卡片",
       priority: TOAST_PRIORITY.COGNITIVE,
       durationMs: 5000,
     });
@@ -1716,7 +1743,7 @@ export default function Home() {
         setMessage(data.error || "上传失败");
         return;
       }
-      const title = data.title || "";
+      const title = cleanBookTitle(data.title || "");
       const bookSummary = data.bookSummary || "";
       const chapters = data.chapters || [];
       const liteMode = data.mode === "lite";
@@ -1911,12 +1938,13 @@ export default function Home() {
     if (!currentBookId) return;
     if (addictionState.viewed_cards_count < 3) return;
     if (addictionState.has_triggered_training_prompt) return;
+    if (addictionState.decision_training_progress > 0) return;
     if (!hasCompleteDecisionCards(getDecisionCardsInput())) return;
 
     enqueueGuidanceToast({
       id: `addiction-training-prompt-${currentBookId}`,
-      message: "你已经开始理解这本书的核心结构\n👉 试试一个真实场景？",
-      actionText: "开始决策训练",
+      message: "试一道题，看看这本书会怎么影响你的选择",
+      actionText: "试一道题",
       onAction: () => {
         void handleOpenDecisionTraining();
       },
@@ -1943,6 +1971,69 @@ export default function Home() {
     enqueueGuidanceToast,
   ]);
 
+  // ── Fallback timers: prevent user from getting stuck ──────────────────────
+  useEffect(() => {
+    if (!currentBookId) return;
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    // Scenario 1: entered card view but hasn't browsed >=3 cards after 30s
+    if (onboardingProgress === "analyzed" && addictionState.viewed_cards_count < 3) {
+      timers.push(setTimeout(() => {
+        enqueueGuidanceToast({
+          id: `fallback-skip-cards-${currentBookId}`,
+          message: "你也可以直接试一道题",
+          actionText: "试一道题",
+          onAction: () => void handleOpenDecisionTraining(),
+          priority: TOAST_PRIORITY.GUIDANCE,
+          durationMs: 10000,
+        });
+        setFallbackUnlocks((prev) => ({ ...prev, training: true }));
+      }, 30000));
+    }
+
+    // Scenario 2: training entry visible but not clicked after 30s
+    if (
+      !isBeforeOnboardingStep(onboardingProgress, "viewed_cards") &&
+      isBeforeOnboardingStep(onboardingProgress, "trained") &&
+      addictionState.decision_training_progress === 0 &&
+      !isDecisionLoading &&
+      !isDecisionPanelOpen
+    ) {
+      timers.push(setTimeout(() => {
+        enqueueGuidanceToast({
+          id: `fallback-nudge-training-${currentBookId}`,
+          message: "继续看卡片也可以，或者试一道题",
+          priority: TOAST_PRIORITY.GUIDANCE,
+          durationMs: 10000,
+        });
+      }, 30000));
+    }
+
+    // Scenario 3: completed 3 questions but hasn't exported after 30s
+    if (
+      !isBeforeOnboardingStep(onboardingProgress, "trained") &&
+      isBeforeOnboardingStep(onboardingProgress, "exported")
+    ) {
+      timers.push(setTimeout(() => {
+        enqueueGuidanceToast({
+          id: `fallback-nudge-export-${currentBookId}`,
+          message: "你可以把这本书保存下来",
+          actionText: "导出",
+          onAction: () => {
+            setExportStatus("idle");
+            setIsExportModalOpen(true);
+          },
+          priority: TOAST_PRIORITY.GUIDANCE,
+          durationMs: 10000,
+        });
+        setFallbackUnlocks((prev) => ({ ...prev, export: true }));
+      }, 30000));
+    }
+
+    return () => timers.forEach(clearTimeout);
+  }, [onboardingProgress, currentBookId, addictionState.viewed_cards_count, addictionState.decision_training_progress, isDecisionLoading, isDecisionPanelOpen, enqueueGuidanceToast, handleOpenDecisionTraining]);
+
   const handleImmersiveTouchStart = (e: React.TouchEvent) => {
     touchStartXRef.current = e.touches[0].clientX;
   };
@@ -1953,6 +2044,13 @@ export default function Home() {
       navigateImmersive(delta < 0 ? "next" : "prev");
     }
   };
+
+  // ── Onboarding unlock flags ────────────────────────────────────────────────
+  const isOnboardingCompleted = onboardingProgress === "completed";
+  const trainingUnlocked = isOnboardingCompleted || !isBeforeOnboardingStep(onboardingProgress, "viewed_cards") || fallbackUnlocks.training;
+  const exportUnlocked = isOnboardingCompleted || !isBeforeOnboardingStep(onboardingProgress, "trained") || fallbackUnlocks.export;
+  const posterUnlocked = isOnboardingCompleted || !isBeforeOnboardingStep(onboardingProgress, "exported");
+  const historyVisible = isOnboardingCompleted || onboardingProgress !== "none";
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -2206,7 +2304,7 @@ export default function Home() {
           })()}
 
           {/* ── Recent history ── */}
-          {recentHistory.length > 0 && (
+          {historyVisible && recentHistory.length > 0 && (
             <section className="mb-10">
               <div className="flex items-center justify-between mb-4">
                 <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 select-none">
@@ -2298,7 +2396,7 @@ export default function Home() {
                   {bookTitle}
                 </h2>
                 <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
-                  {bookTitle && !isAnalyzing && (() => {
+                  {trainingUnlocked && bookTitle && !isAnalyzing && (() => {
                     const cardsReady = hasCompleteDecisionCards(getDecisionCardsInput());
                     return (
                       <button
@@ -2316,21 +2414,21 @@ export default function Home() {
                             {decisionLoadingStep || "生成中…"}
                           </>
                         ) : (
-                          "开始决策训练"
+                          addictionState.decision_training_progress > 0 ? "回顾题目" : "试一道题"
                         )}
                       </button>
                     );
                   })()}
-                  {(!isLiteMode || isLiteUnlocked) && (
+                  {exportUnlocked && (!isLiteMode || isLiteUnlocked) && (
                     <button
                       onClick={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
                       disabled={exportStatus === "exporting"}
                       className="flex min-w-[120px] flex-1 items-center justify-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm transition hover:bg-gray-50 disabled:opacity-50 sm:flex-none"
                     >
-                      {exportStatus === "exporting" ? "导出中…" : "导出知识包"}
+                      {exportStatus === "exporting" ? "导出中…" : "把这本书带走"}
                     </button>
                   )}
-                  {bookSummary && (
+                  {posterUnlocked && bookSummary && (
                     <button
                       onClick={handleGeneratePoster}
                       disabled={isGeneratingPoster}
@@ -2345,7 +2443,7 @@ export default function Home() {
                           生成中…
                         </>
                       ) : (
-                        "生成海报"
+                        "分享出去"
                       )}
                     </button>
                   )}
@@ -2459,7 +2557,7 @@ export default function Home() {
                   scenarios={decisionScenarios}
                   onBackToCards={() => {
                     setIsDecisionPanelOpen(false);
-                    cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                   }}
                   onAnswerComplete={(option: DecisionOptionKey, progress: number) => {
                     if (!currentBookId) return;
@@ -2470,6 +2568,15 @@ export default function Home() {
                       decision_history: [...prev.decision_history, option],
                       decision_score: prev.decision_score + 1,
                     }));
+
+                    if (progress === 1) {
+                      enqueueGuidanceToast({
+                        id: `addiction-first-answer-${currentBookId}`,
+                        message: "你刚才的选择，其实很有代表性",
+                        priority: TOAST_PRIORITY.GUIDANCE,
+                        durationMs: 5000,
+                      });
+                    }
 
                     if (progress === 2) {
                       enqueueGuidanceToast({
@@ -2487,7 +2594,7 @@ export default function Home() {
                       if (patternMessage) {
                         enqueueGuidanceToast({
                           id: `addiction-pattern-${currentBookId}`,
-                          message: patternMessage,
+                          message: `${patternMessage}\n\n右上角的「决策力」记录你做过多少次真实场景练习，做得越多，决策力越高。`,
                           priority: TOAST_PRIORITY.COGNITIVE,
                           durationMs: 0,
                           isPersistent: true,
@@ -2501,8 +2608,8 @@ export default function Home() {
                     if (!isBeforeOnboardingStep(onboardingProgress, "trained")) return;
                     enqueueGuidanceToast({
                       id: "onboarding-trained",
-                      message: "📚 你已经理解这本书了\n👉 下一步，把它带走",
-                      actionText: "导出知识包",
+                      message: "把这本书带走",
+                      actionText: "导出",
                       onAction: () => {
                         setExportStatus("idle");
                         setIsExportModalOpen(true);
@@ -2877,6 +2984,11 @@ export default function Home() {
         }}
         onDeleteHistory={deleteHistoryRecord}
         onOpenStarterBooks={handleShowStarterModeFromToast}
+        hasCurrentBook={!!bookTitle}
+        trainingUnlocked={trainingUnlocked}
+        exportUnlocked={exportUnlocked}
+        onOpenTraining={() => void handleOpenDecisionTraining()}
+        onOpenExport={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
       />
     </>
   );
