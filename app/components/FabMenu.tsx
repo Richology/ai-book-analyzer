@@ -167,47 +167,6 @@ export const FabMenu = forwardRef<FabMenuHandle, {
                   </svg>
                 </button>
 
-                {/* Current book entry */}
-                {hasCurrentBook && currentBookTitle && (
-                  <div className="flex w-full items-center rounded-xl px-3 py-3">
-                    <span className="flex items-center gap-2.5 text-[13px] text-gray-800">
-                      <span className="text-base">📖</span>
-                      <span className="truncate max-w-[200px]">{currentBookTitle}</span>
-                    </span>
-                  </div>
-                )}
-
-                {/* Training entry (weak) */}
-                {hasCurrentBook && trainingUnlocked && (
-                  <button
-                    onClick={() => {
-                      onOpenTraining();
-                      closePanel();
-                    }}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-3 transition-colors hover:bg-gray-50 active:bg-gray-100"
-                  >
-                    <span className="flex items-center gap-2.5 text-[13px] text-gray-500">
-                      <span className="text-base">🧩</span>
-                      试一道题
-                    </span>
-                  </button>
-                )}
-
-                {/* Export entry (weak) */}
-                {hasCurrentBook && exportUnlocked && (
-                  <button
-                    onClick={() => {
-                      onOpenExport();
-                      closePanel();
-                    }}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-3 transition-colors hover:bg-gray-50 active:bg-gray-100"
-                  >
-                    <span className="flex items-center gap-2.5 text-[13px] text-gray-500">
-                      <span className="text-base">📦</span>
-                      导出
-                    </span>
-                  </button>
-                )}
               </div>
             )}
 
