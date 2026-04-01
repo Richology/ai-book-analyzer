@@ -60,6 +60,24 @@ type Chapter = {
   summary?: string;
 };
 
+type BgAnalysisData = {
+  title: string;
+  bookSummary: string;
+  chapters: Chapter[];
+  readingGuide: string;
+  viewMap: string;
+  actionExtraction: string;
+  viewValidation: string;
+  ideaSourceTracing: string;
+  liteMode: boolean;
+  fileType: string;
+  starterBookId: string | null;
+};
+
+type BgAnalysisStatus =
+  | { active: false }
+  | { active: true; title: string; step: string; stepsCompleted: number; totalSteps: number };
+
 type ImmersiveCardDef = {
   key: string;
   label: string;
@@ -700,6 +718,11 @@ export default function Home() {
   const immersiveContainerRef = useRef<HTMLDivElement>(null);
   const immersiveCardsLenRef = useRef(0);
   const shouldScrollToStarterSectionRef = useRef(false);
+
+  // ── Background analysis state ──
+  const bgAnalysisRef = useRef<BgAnalysisData | null>(null);
+  const bgAnalysisTitleRef = useRef<string>("");
+  const [bgAnalysisStatus, setBgAnalysisStatus] = useState<BgAnalysisStatus>({ active: false });
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
@@ -1061,13 +1084,37 @@ export default function Home() {
     setAddictionStateLocal(DEFAULT_ADDICTION_STATE);
   }, []);
 
+  /** Apply completed background analysis results to display state */
+  const applyBgAnalysisToDisplay = useCallback((bg: BgAnalysisData) => {
+    setBookTitle(bg.title);
+    setBookSummary(bg.bookSummary);
+    setChapters(bg.chapters);
+    setReadingGuide(bg.readingGuide);
+    setViewMap(bg.viewMap);
+    setActionExtraction(bg.actionExtraction);
+    setCriticalExamination(bg.viewValidation);
+    setIdeaSourceTracing(bg.ideaSourceTracing);
+    setIsLiteMode(bg.liteMode);
+    setIsLiteUnlocked(!bg.liteMode);
+    setCurrentStarterBookId(bg.starterBookId);
+    setDecisionScenarios(loadDecisionScenarioCache(buildDecisionBookId(bg.title)));
+    setIsDecisionPanelOpen(false);
+    setDecisionError("");
+    setMessage("分析完成");
+  }, []);
+
   const restoreFromHistory = useCallback((record: HistoryRecord) => {
-    if (isAnalyzing) {
-      setHistoryToast("当前正在分析，请稍后查看历史记录");
-      setTimeout(() => setHistoryToast(""), 2500);
-      return;
-    }
-    resetAllState();
+    // Signal background analysis to stop writing to display
+    bgAnalysisTitleRef.current = "";
+    // Clear loading states so history book shows cleanly
+    setIsLoadingBookSummary(false);
+    setIsLoadingReadingGuide(false);
+    setIsLoadingViewMap(false);
+    setIsLoadingActionExtraction(false);
+    setIsLoadingViewValidation(false);
+    setIsLoadingIdeaSourceTracing(false);
+    setIsLoading(false);
+
     setSelectedFile(null);
     setBookTitle(record.title);
     setBookSummary(record.bookSummary);
@@ -1084,8 +1131,8 @@ export default function Home() {
     setDecisionError("");
     setDecisionScenarios(loadDecisionScenarioCache(buildDecisionBookId(record.title)));
     setIsDecisionPanelOpen(false);
-    setMessage("分析完成");
-  }, [isAnalyzing, resetAllState]);
+    setMessage("");
+  }, []);
 
   const processFile = (file: File | undefined | null) => {
     if (!file) {
@@ -1701,18 +1748,34 @@ export default function Home() {
       return;
     }
     try {
-      resetAllState();   // ✅ 放第一行
+      resetAllState();
 
       setIsLoading(true);
       setMessage("正在上传文件...");
 
-      // ✅ 加这 6 行（关键！）
       setIsLoadingBookSummary(true);
       setIsLoadingReadingGuide(true);
       setIsLoadingViewMap(true);
       setIsLoadingActionExtraction(true);
       setIsLoadingViewValidation(true);
       setIsLoadingIdeaSourceTracing(true);
+
+      // Initialize background analysis tracker
+      const bg: BgAnalysisData = {
+        title: "", bookSummary: "", chapters: [], readingGuide: "",
+        viewMap: "", actionExtraction: "", viewValidation: "",
+        ideaSourceTracing: "", liteMode: false,
+        fileType: selectedFile.name.toLowerCase().endsWith(".pdf") ? "pdf" : "epub",
+        starterBookId: currentStarterBookId,
+      };
+      bgAnalysisRef.current = null;
+      let stepsCompleted = 0;
+      const totalSteps = 6;
+      const updateProgress = (step: string) => {
+        setBgAnalysisStatus({ active: true, title: bg.title || "新书", step, stepsCompleted, totalSteps });
+      };
+      updateProgress("上传解析中…");
+
       let res: Response;
       try {
         const { upload } = await import("@vercel/blob/client");
@@ -1741,24 +1804,139 @@ export default function Home() {
       const data = await res.json();
       if (!data.success) {
         setMessage(data.error || "上传失败");
+        setBgAnalysisStatus({ active: false });
         return;
       }
       const title = cleanBookTitle(data.title || "");
-      const bookSummary = data.bookSummary || "";
-      const chapters = data.chapters || [];
+      const bkSummary = data.bookSummary || "";
+      const chaps: Chapter[] = data.chapters || [];
       const liteMode = data.mode === "lite";
-      setMessage("文件解析成功，正在生成全书摘要...");
+
+      bg.title = title;
+      bg.bookSummary = bkSummary;
+      bg.chapters = chaps;
+      bg.liteMode = liteMode;
+      stepsCompleted = 1;
+      bgAnalysisTitleRef.current = title;
+
+      // Helper: only write to display if user is still viewing this book
+      const isStillViewing = () => bgAnalysisTitleRef.current === title;
+
+      // Show initial results immediately
       setBookTitle(title);
-      setBookSummary(bookSummary);
-      setChapters(chapters);
+      setBookSummary(bkSummary);
+      setChapters(chaps);
       setIsLiteMode(liteMode);
       setIsLoadingBookSummary(false);
-      setMessage("正在生成阅读指南...");
-      fetchReadingGuide(title, bookSummary, chapters, !liteMode);
+
+      if (liteMode) {
+        setMessage("正在生成阅读指南...");
+        updateProgress("阅读指南…");
+        fetchReadingGuide(title, bkSummary, chaps, false);
+        setBgAnalysisStatus({ active: false });
+        return;
+      }
+
+      // ── Reading Guide ──
+      updateProgress("阅读指南…");
+      if (isStillViewing()) setMessage("正在生成阅读指南...");
+      try {
+        const guideRes = await fetch("/api/skills/reading-guide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, bookSummary: bkSummary, chapters: chaps }),
+        });
+        const guideData = await guideRes.json();
+        if (guideData.success) {
+          bg.readingGuide = guideData.readingGuide || "";
+          if (isStillViewing()) setReadingGuide(bg.readingGuide);
+        }
+      } catch (e) { console.error("阅读指南生成失败:", e); }
+      if (isStillViewing()) setIsLoadingReadingGuide(false);
+      stepsCompleted = 2;
+
+      // ── View Map ──
+      updateProgress("观点地图…");
+      if (isStillViewing()) setMessage("正在生成观点地图...");
+      try {
+        const vmRes = await fetch("/api/skills/view-map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, bookSummary: bkSummary, chapters: chaps }),
+        });
+        const vmData = await vmRes.json();
+        if (vmData.success) {
+          bg.viewMap = vmData.viewMap || "";
+          if (isStillViewing()) setViewMap(bg.viewMap);
+        }
+      } catch (e) { console.error("观点地图生成失败:", e); }
+      if (isStillViewing()) setIsLoadingViewMap(false);
+      stepsCompleted = 3;
+
+      // ── Parallel: Action + Validation + IdeaSource ──
+      updateProgress("剩余分析…");
+      if (isStillViewing()) setMessage("正在生成剩余分析...");
+      const [actionResult, validResult, ideaResult] = await Promise.allSettled([
+        fetch("/api/skills/action-extraction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, bookSummary: bkSummary, chapters: chaps }),
+        }).then(r => r.json()),
+        fetch("/api/skills/view-validation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, bookSummary: bkSummary, chapters: chaps }),
+        }).then(r => r.json()),
+        fetch("/api/skills/idea-source-tracing", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, bookSummary: bkSummary, viewMap: bg.viewMap || "" }),
+        }).then(r => r.json()),
+      ]);
+
+      if (actionResult.status === "fulfilled" && actionResult.value.success) {
+        bg.actionExtraction = actionResult.value.actionExtraction || "";
+        if (isStillViewing()) setActionExtraction(bg.actionExtraction);
+      }
+      if (validResult.status === "fulfilled" && validResult.value.success) {
+        bg.viewValidation = validResult.value.viewValidation || "";
+        if (isStillViewing()) setCriticalExamination(bg.viewValidation);
+      }
+      if (ideaResult.status === "fulfilled" && ideaResult.value.success) {
+        bg.ideaSourceTracing = ideaResult.value.ideaSourceTracing || "";
+        if (isStillViewing()) setIdeaSourceTracing(bg.ideaSourceTracing);
+      }
+      if (isStillViewing()) {
+        setIsLoadingActionExtraction(false);
+        setIsLoadingViewValidation(false);
+        setIsLoadingIdeaSourceTracing(false);
+      }
+      stepsCompleted = totalSteps;
+
+      // ── Save to history ──
+      bgAnalysisRef.current = bg;
+
+      if (isStillViewing()) {
+        // User is still on this book — just mark complete
+        setMessage("分析完成");
+      } else {
+        // User switched away — offer to switch back via toast
+        const savedBg = { ...bg };
+        enqueueGuidanceToast({
+          id: `bg-analysis-done-${title}`,
+          message: `《${title}》分析完成`,
+          actionText: "查看",
+          onAction: () => {
+            applyBgAnalysisToDisplay(savedBg);
+            bgAnalysisRef.current = null;
+          },
+          priority: TOAST_PRIORITY.COGNITIVE,
+          durationMs: 10000,
+        });
+      }
     } catch (error) {
       console.error(error);
       setMessage("请求失败，请稍后重试。");
-      // 重置所有子 loading 状态，防止页面永久显示 loading 骨架屏
       setIsLoadingBookSummary(false);
       setIsLoadingReadingGuide(false);
       setIsLoadingViewMap(false);
@@ -1767,6 +1945,8 @@ export default function Home() {
       setIsLoadingIdeaSourceTracing(false);
     } finally {
       setIsLoading(false);
+      setBgAnalysisStatus({ active: false });
+      bgAnalysisRef.current = null;
     }
   };
 
@@ -2199,7 +2379,7 @@ export default function Home() {
           )}
 
           {/* ── Status banner + progress tracker (independent of upload panel) ── */}
-          {message && (() => {
+          {message && !(bgAnalysisStatus.active && bgAnalysisTitleRef.current !== bookTitle) && (() => {
             const isError =
               message.includes("失败") ||
               message.includes("仅支持") ||
@@ -2960,6 +3140,18 @@ export default function Home() {
             }
           }}
         />
+      )}
+
+      {/* ── Background analysis progress indicator ── */}
+      {bgAnalysisStatus.active && bgAnalysisTitleRef.current !== bookTitle && (
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2.5 rounded-xl bg-gray-950/90 backdrop-blur-sm px-4 py-2.5 shadow-lg text-white text-xs">
+          <span className="relative flex h-2 w-2 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+          </span>
+          <span className="max-w-[180px] truncate">《{bgAnalysisStatus.title}》{bgAnalysisStatus.step}</span>
+          <span className="text-gray-400">{bgAnalysisStatus.stepsCompleted}/{bgAnalysisStatus.totalSteps}</span>
+        </div>
       )}
 
       <FabMenu
