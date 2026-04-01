@@ -676,6 +676,7 @@ function ShareModal({
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const touchStartXRef = useRef(0);
+  const immersiveContainerRef = useRef<HTMLDivElement>(null);
   const immersiveCardsLenRef = useRef(0);
   const shouldScrollToStarterSectionRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -986,6 +987,8 @@ export default function Home() {
     setImmersiveIndex((prev) =>
       dir === "next" ? (prev + 1) % len : (prev - 1 + len) % len
     );
+    // 切换卡片后滚动到卡片位置，而不是页面顶部
+    immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   useEffect(() => {
@@ -2290,7 +2293,7 @@ export default function Home() {
           {bookTitle && (
             <>
               {/* Title bar */}
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+              <div ref={immersiveContainerRef} className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
                 <h2 className="max-w-full text-left text-lg font-semibold leading-snug text-gray-900 md:truncate">
                   {bookTitle}
                 </h2>
@@ -2576,47 +2579,53 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Navigation row */}
-                    <div className="flex items-center justify-between mt-5">
-                      <button
-                        onClick={() => navigateImmersive("prev")}
-                        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
-                      >
-                        ← 上一篇
-                      </button>
-
-                      {/* Dot indicators */}
-                      <div className="flex items-center gap-1.5">
-                        {immersiveCardList.map((_, i) => (
-                          <button
-                            key={i}
-                            onClick={() => {
-                              setSlideDir(
-                                i > safeImmersiveIndex ? "left" : "right"
-                              );
-                              setImmersiveIndex(i);
-                            }}
-                            className={`h-1.5 rounded-full transition-all duration-200 ${
-                              i === safeImmersiveIndex
-                                ? "w-4 bg-gray-800"
-                                : "w-1.5 bg-gray-300 hover:bg-gray-400"
-                            }`}
-                          />
-                        ))}
-                      </div>
-
-                      <button
-                        onClick={() => navigateImmersive("next")}
-                        className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
-                      >
-                        下一篇 →
-                      </button>
-                    </div>
-
                     {/* Keyboard hint */}
                     <p className="text-center text-[10px] text-gray-300 mt-3 select-none hidden md:block">
                       使用键盘 ← → 方向键切换
                     </p>
+
+                    {/* Spacer for fixed bottom nav */}
+                    <div className="h-16" />
+
+                    {/* Fixed bottom navigation */}
+                    <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/80 backdrop-blur-md border-t border-gray-100 px-4 py-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+                      <div className="mx-auto max-w-xl flex items-center justify-between">
+                        <button
+                          onClick={() => navigateImmersive("prev")}
+                          className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
+                        >
+                          ← 上一篇
+                        </button>
+
+                        {/* Dot indicators */}
+                        <div className="flex items-center gap-1.5">
+                          {immersiveCardList.map((_, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                setSlideDir(
+                                  i > safeImmersiveIndex ? "left" : "right"
+                                );
+                                setImmersiveIndex(i);
+                                immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }}
+                              className={`h-1.5 rounded-full transition-all duration-200 ${
+                                i === safeImmersiveIndex
+                                  ? "w-4 bg-gray-800"
+                                  : "w-1.5 bg-gray-300 hover:bg-gray-400"
+                              }`}
+                            />
+                          ))}
+                        </div>
+
+                        <button
+                          onClick={() => navigateImmersive("next")}
+                          className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all active:scale-[0.97] select-none"
+                        >
+                          下一篇 →
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
