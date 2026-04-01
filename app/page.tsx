@@ -2952,7 +2952,7 @@ export default function Home() {
             <img
               src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
               alt="Richology"
-              className="h-7 w-auto object-contain opacity-40"
+              className="h-7 w-auto object-contain"
             />
             <a
               href="https://richology.cn"
