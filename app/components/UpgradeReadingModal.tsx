@@ -23,6 +23,13 @@ const ADVANCED_BOOKS = [
   { title: "非暴力沟通", author: "马歇尔·卢森堡" },
   { title: "金字塔原理", author: "芭芭拉·明托" },
   { title: "穷查理宝典", author: "查理·芒格" },
+  { title: "臣服实验", author: "迈克尔·辛格" },
+  { title: "影响力", author: "罗伯特·西奥迪尼" },
+  { title: "原子习惯", author: "詹姆斯·克利尔" },
+  { title: "效率脑科学", author: "戴维·罗克" },
+  { title: "掌控注意力", author: "尼尔·埃亚尔" },
+  { title: "微习惯", author: "斯蒂芬·盖斯" },
+  { title: "财富自由之路", author: "李笑来" },
 ];
 
 const FLOATING_POSITIONS = [
@@ -36,6 +43,13 @@ const FLOATING_POSITIONS = [
   { top: "82%", right: "25%", delay: "2.1s", scale: 0.95, opacity: 0.7 },
   { top: "5%", right: "25%", delay: "0.5s", scale: 1.15, opacity: 0.45 },
   { top: "55%", left: "25%", delay: "2.8s", scale: 0.9, opacity: 0.5 },
+  { top: "28%", left: "20%", delay: "0.9s", scale: 0.85, opacity: 0.35 },
+  { top: "48%", right: "3%", delay: "2.2s", scale: 0.9, opacity: 0.5 },
+  { top: "88%", left: "6%", delay: "1.1s", scale: 1.1, opacity: 0.75 },
+  { top: "18%", right: "22%", delay: "3.4s", scale: 1.0, opacity: 0.6 },
+  { top: "75%", right: "6%", delay: "0.3s", scale: 1.15, opacity: 0.45 },
+  { top: "6%", left: "18%", delay: "1.9s", scale: 1.05, opacity: 0.55 },
+  { top: "92%", right: "32%", delay: "2.6s", scale: 0.8, opacity: 0.4 },
 ];
 
 function FloatingLibraryBackground() {
