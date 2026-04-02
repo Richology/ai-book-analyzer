@@ -1,25 +1,53 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   DecisionFeedbackBlock,
   DecisionOptionKey,
   DecisionScenario,
 } from "@/types/decision";
 
-function FeedbackSection({
+function StyledFeedbackSection({
   label,
   value,
+  variant,
+  icon,
 }: {
   label: string;
   value: string;
+  variant: "empathy" | "analysis" | "upgrade" | "action";
+  icon: string;
 }) {
+  const styles = {
+    empathy: {
+      wrap: "bg-orange-50/80 border-orange-100/60 text-orange-900",
+      label: "text-orange-500",
+    },
+    analysis: {
+      wrap: "bg-blue-50/80 border-blue-100/60 text-blue-900",
+      label: "text-blue-500",
+    },
+    upgrade: {
+      wrap: "bg-gray-900 border-gray-800 text-gray-100 shadow-xl",
+      label: "text-gray-400",
+    },
+    action: {
+      wrap: "bg-emerald-50/80 border-emerald-100/60 text-emerald-900",
+      label: "text-emerald-500",
+    },
+  };
+
+  const s = styles[variant];
+
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50/80 px-5 py-4">
-      <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-2">
-        {label}
-      </p>
-      <p className="text-sm leading-7 text-gray-700 whitespace-pre-line">{value}</p>
+    <div className={`rounded-3xl border px-6 py-6 transition-all ${s.wrap}`}>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">{icon}</span>
+        <p className={`text-[11px] font-bold uppercase tracking-widest ${s.label}`}>
+          {label}
+        </p>
+      </div>
+      <p className="text-[15px] leading-8 whitespace-pre-line opacity-90">{value}</p>
     </div>
   );
 }
@@ -34,35 +62,43 @@ function FeedbackView({
   const selectedFeedback: DecisionFeedbackBlock = scenario.feedback[selectedOption];
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-2">
-        {(["A", "B"] as const).map((optionKey) => {
-          const isSelected = optionKey === selectedOption;
-          return (
-            <div
-              key={optionKey}
-              className={`rounded-2xl border px-4 py-4 transition-all ${
-                isSelected
-                  ? "border-gray-900 bg-gray-900 text-white shadow-sm"
-                  : "border-gray-200 bg-white text-gray-500"
-              }`}
-            >
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] mb-2">
-                选择 {optionKey}
-              </p>
-              <p className="text-sm leading-6">
-                {scenario.options[optionKey]}
-              </p>
-            </div>
-          );
-        })}
+    <div className="space-y-6">
+      {/* Selected Option Mini Card */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400 mb-2">
+          您选择了 {selectedOption}
+        </p>
+        <p className="text-[15px] leading-7 text-gray-700">
+          {scenario.options[selectedOption]}
+        </p>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <FeedbackSection label="共情" value={selectedFeedback.empathy} />
-        <FeedbackSection label="分析" value={selectedFeedback.analysis} />
-        <FeedbackSection label="升级" value={selectedFeedback.upgrade} />
-        <FeedbackSection label="行动建议" value={selectedFeedback.action} />
+      {/* The 4 progression blocks arranged vertically */}
+      <div className="flex flex-col gap-4">
+        <StyledFeedbackSection 
+          label="共情" 
+          icon="💭" 
+          value={selectedFeedback.empathy} 
+          variant="empathy" 
+        />
+        <StyledFeedbackSection 
+          label="深度分析" 
+          icon="🔍" 
+          value={selectedFeedback.analysis} 
+          variant="analysis" 
+        />
+        <StyledFeedbackSection 
+          label="认知升级" 
+          icon="✨" 
+          value={selectedFeedback.upgrade} 
+          variant="upgrade" 
+        />
+        <StyledFeedbackSection 
+          label="破局行动" 
+          icon="🎯" 
+          value={selectedFeedback.action} 
+          variant="action" 
+        />
       </div>
     </div>
   );
@@ -84,12 +120,21 @@ export function DecisionTrainingPanel({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<DecisionOptionKey | null>(null);
   const [viewMode, setViewMode] = useState<"scenario" | "feedback" | "done">("scenario");
+  
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setCurrentIndex(0);
     setSelectedOption(null);
     setViewMode("scenario");
   }, [scenarios]);
+  
+  // Auto scroll to top when changing views
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [viewMode, currentIndex]);
 
   const currentScenario = scenarios[currentIndex];
 
@@ -120,80 +165,75 @@ export function DecisionTrainingPanel({
   };
 
   return (
-    <section className="mb-10 rounded-[28px] border border-gray-200 bg-white/95 shadow-card backdrop-blur-sm overflow-hidden transition-all duration-200">
-      <div className="border-b border-gray-100 px-6 py-5 md:px-8">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-gray-400 mb-2">
-              决策训练
-            </p>
-            <h3 className="text-xl font-semibold text-gray-950">
-              用真实情境，把书里的认知练成判断力
-            </h3>
-            <p className="text-sm leading-6 text-gray-500 mt-2">
-              先做选择，再看反馈。没有标准答案，重点是看见自己背后的判断习惯。
-            </p>
-          </div>
-          <button
-            onClick={onBackToCards}
-            className="shrink-0 rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-500 hover:text-gray-800 hover:border-gray-300 transition-all"
-          >
-            返回卡片
-          </button>
-        </div>
-      </div>
-
-      <div className="px-6 py-6 md:px-8 md:py-8">
+    <section className="mb-10 rounded-[28px] border border-gray-200 bg-white shadow-card overflow-hidden flex flex-col relative w-full h-full max-h-[75vh]">
+      
+      {/* Universal Compact Header */}
+      <div className="shrink-0 border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">
+        <button
+          onClick={onBackToCards}
+          className="rounded-xl bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all flex items-center gap-1.5"
+        >
+          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          退出训练
+        </button>
         {viewMode !== "done" && (
-          <div className="flex items-center justify-between gap-3 mb-6">
-            <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3.5 py-1.5 text-[11px] font-medium text-gray-500">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-gray-400" />
-              场景 {currentIndex + 1} / {scenarios.length}
-            </div>
-            <p className="text-xs text-gray-400">支持性反馈，不做对错评判</p>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+              PROGRESS
+            </span>
+            <span className="flex items-center justify-center bg-gray-900 text-white text-[11px] font-bold rounded-full w-6 h-6 leading-none">
+              {currentIndex + 1}
+            </span>
+            <span className="text-gray-300 text-[11px] font-bold">/</span>
+            <span className="text-gray-400 text-[11px] font-bold">
+              {scenarios.length}
+            </span>
           </div>
         )}
+      </div>
 
+      {/* Internal Scroll Viewport */}
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-8 scrollbar-hide"
+      >
         {viewMode === "scenario" && (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-600">
-                {currentScenario.roleType}
-              </span>
-              <span className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-500">
-                训练能力：{currentScenario.trainingAbility}
-              </span>
+          <div className="space-y-8 pb-4">
+            
+            {/* Context Narrative Block */}
+            <div>
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <span className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold tracking-wider text-gray-600 uppercase">
+                  {currentScenario.roleType}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-gray-100 px-3 py-1 text-[11px] font-medium text-gray-500">
+                  训练能力：{currentScenario.trainingAbility}
+                </span>
+              </div>
+
+              <div className="rounded-r-[24px] rounded-bl-[24px] border-l-[3px] border-l-gray-900 bg-gray-50/60 p-6 md:p-8">
+                <p className="text-[16px] leading-8 text-gray-700 whitespace-pre-line mb-6">
+                  {currentScenario.scene}
+                </p>
+                <div className="h-px w-full bg-gray-200/60 mb-6"></div>
+                <p className="text-[18px] md:text-xl font-bold text-gray-900 leading-snug">
+                  🤔 {currentScenario.question}
+                </p>
+              </div>
             </div>
 
-            <div className="rounded-3xl border border-gray-100 bg-gray-50/70 px-5 py-5 md:px-6">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
-                场景
-              </p>
-              <p className="text-[15px] leading-8 text-gray-700 whitespace-pre-line">
-                {currentScenario.scene}
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-gray-100 bg-white px-5 py-5 md:px-6 shadow-sm">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
-                问题
-              </p>
-              <p className="text-lg font-semibold text-gray-950">
-                {currentScenario.question}
-              </p>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
+            {/* Vertical Options */}
+            <div className="flex flex-col gap-4">
               {(["A", "B"] as const).map((optionKey) => (
                 <button
                   key={optionKey}
                   onClick={() => handleSelect(optionKey)}
-                  className="rounded-3xl border border-gray-200 bg-white px-5 py-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-300 hover:shadow-card-hover active:scale-[0.995]"
+                  className="group relative flex w-full items-start gap-4 rounded-[20px] border border-gray-200 bg-white p-5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-gray-900 hover:shadow-card-hover active:scale-[0.995]"
                 >
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
-                    选项 {optionKey}
-                  </p>
-                  <p className="text-sm leading-7 text-gray-700">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[13px] font-bold text-gray-500 transition-colors group-hover:bg-gray-900 group-hover:text-white mt-0.5">
+                    {optionKey}
+                  </div>
+                  <p className="text-[15px] leading-relaxed text-gray-700 group-hover:text-gray-900 pt-0.5 flex-1">
                     {currentScenario.options[optionKey]}
                   </p>
                 </button>
@@ -203,51 +243,58 @@ export function DecisionTrainingPanel({
         )}
 
         {viewMode === "feedback" && selectedOption && (
-          <div className="space-y-6">
+          <div className="space-y-8 pb-4">
             <FeedbackView
               scenario={currentScenario}
               selectedOption={selectedOption}
             />
 
-            <div className="flex justify-end">
+            <div className="flex justify-end border-t border-gray-100 pt-6">
               <button
                 onClick={handleNext}
-                className="rounded-2xl bg-gray-950 px-5 py-3 text-sm font-medium text-white hover:bg-gray-800 transition-all active:scale-[0.99]"
+                className="flex items-center gap-2 rounded-2xl bg-gray-900 px-7 py-3.5 text-[15px] font-semibold text-white shadow-md hover:bg-gray-800 hover:-translate-y-0.5 transition-all active:scale-[0.98]"
               >
                 {currentIndex < scenarios.length - 1 ? "下一题" : "完成训练"}
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
             </div>
           </div>
         )}
 
         {viewMode === "done" && (
-          <div className="rounded-3xl border border-gray-100 bg-gray-50/70 px-6 py-8 text-center">
-            <h4 className="text-2xl font-semibold text-gray-950 mb-3">
+          <div className="flex flex-col items-center justify-center rounded-3xl border border-gray-100 bg-gray-50/50 px-6 py-12 text-center my-auto min-h-[400px]">
+            <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+              <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+            </div>
+            
+            <h4 className="text-2xl font-bold text-gray-900 mb-4">
               做完了！
             </h4>
-            <p className="max-w-xl mx-auto text-sm leading-7 text-gray-600 mb-6">
+            
+            <p className="max-w-md mx-auto text-[15px] leading-7 text-gray-600 mb-8">
               你已经把书里的观点带进真实情境里走了一遍。回到卡片时，可以再对照看看：哪些判断是习惯，哪些判断值得升级。
             </p>
+            
             <button
               onClick={onBackToCards}
-              className="rounded-2xl bg-gray-950 px-5 py-3 text-sm font-medium text-white hover:bg-gray-800 transition-all active:scale-[0.99]"
+              className="rounded-2xl bg-gray-900 px-8 py-3.5 text-[15px] font-semibold text-white hover:bg-gray-800 shadow-md hover:-translate-y-0.5 transition-all active:scale-[0.98]"
             >
               返回卡片
             </button>
             
             {onUpgradeClick && (
-              <div className="mt-8 flex flex-col items-center justify-center border-t border-gray-200/60 pt-8">
-                <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-widest">进阶提升</p>
+              <div className="mt-10 flex w-full max-w-sm flex-col items-center justify-center border-t border-gray-200/60 pt-8">
+                <p className="text-[11px] font-bold text-gray-400 mb-4 uppercase tracking-widest">进阶提升</p>
                 <button
                   onClick={onUpgradeClick}
-                  className="group flex flex-col sm:flex-row items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-white to-gray-50 px-6 py-3.5 border border-gray-200/80 shadow-sm transition-all hover:border-gray-300 hover:shadow-md active:scale-95"
+                  className="group flex w-full flex-col sm:flex-row items-center justify-center gap-2 rounded-2xl bg-white px-6 py-4 border border-gray-200 shadow-sm transition-all hover:border-gray-300 hover:shadow-md active:scale-[0.98]"
                 >
-                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                    <span className="text-lg">🎁</span>
-                    免费获取专属破局书单
+                  <span className="flex items-center gap-2 text-[15px] font-bold text-gray-900">
+                    <span className="text-xl">🎁</span>
+                    免费获取破局书单
                   </span>
                   <span className="hidden sm:inline text-gray-300">|</span>
-                  <span className="text-xs text-gray-500">主理人 1v1 答疑</span>
+                  <span className="text-[13px] font-medium text-gray-500 group-hover:text-gray-700">主理人 1v1 答疑</span>
                 </button>
               </div>
             )}
