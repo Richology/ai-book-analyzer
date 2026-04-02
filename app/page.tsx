@@ -13,6 +13,7 @@ import {
 import { PosterPreviewModal } from "./components/poster/PosterPreviewModal";
 import type { PosterContent } from "./components/poster/types";
 import { DecisionTrainingPanel } from "./components/DecisionTrainingPanel";
+import { UpgradeReadingModal } from "./components/UpgradeReadingModal";
 import { StarterModePanel } from "./components/StarterModePanel";
 import { Toast } from "./components/Toast";
 import { FabMenu, type FabMenuHandle } from "./components/FabMenu";
@@ -784,6 +785,7 @@ export default function Home() {
   const [historyToast, setHistoryToast] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const pendingDeleteTimerRef = useRef<number | null>(null);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
   const isAnalyzing =
     isLoading ||
@@ -2698,6 +2700,7 @@ export default function Home() {
               {isDecisionPanelOpen && decisionScenarios.length > 0 && (
                 <DecisionTrainingPanel
                   scenarios={decisionScenarios}
+                  onUpgradeClick={() => setIsUpgradeModalOpen(true)}
                   onBackToCards={() => {
                     setIsDecisionPanelOpen(false);
                     immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2928,6 +2931,13 @@ export default function Home() {
           </footer>
         </div>
       </main>
+      
+      <UpgradeReadingModal 
+        isOpen={isUpgradeModalOpen} 
+        onClose={() => setIsUpgradeModalOpen(false)} 
+        wechatId="iwbr1988"
+        qrImageSrc="/wechat-qr.png"
+      />
 
       {/* ── Payment modal ── */}
       {isPaywallModalOpen && (

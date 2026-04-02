@@ -73,11 +73,13 @@ export function DecisionTrainingPanel({
   onBackToCards,
   onAnswerComplete,
   onComplete,
+  onUpgradeClick,
 }: {
   scenarios: DecisionScenario[];
   onBackToCards: () => void;
   onAnswerComplete?: (option: DecisionOptionKey, progress: number) => void;
   onComplete?: () => void;
+  onUpgradeClick?: () => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<DecisionOptionKey | null>(null);
@@ -232,6 +234,23 @@ export function DecisionTrainingPanel({
             >
               返回卡片
             </button>
+            
+            {onUpgradeClick && (
+              <div className="mt-8 flex flex-col items-center justify-center border-t border-gray-200/60 pt-8">
+                <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-widest">进阶提升</p>
+                <button
+                  onClick={onUpgradeClick}
+                  className="group flex flex-col sm:flex-row items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-white to-gray-50 px-6 py-3.5 border border-gray-200/80 shadow-sm transition-all hover:border-gray-300 hover:shadow-md active:scale-95"
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <span className="text-lg">🎁</span>
+                    免费获取专属破局书单
+                  </span>
+                  <span className="hidden sm:inline text-gray-300">|</span>
+                  <span className="text-xs text-gray-500">主理人 1v1 答疑</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
