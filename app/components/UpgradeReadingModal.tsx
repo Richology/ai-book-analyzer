@@ -84,11 +84,11 @@ export function UpgradeReadingModal({
             </p>
           </div>
 
-          <div className="mb-6 mx-auto w-44 h-44 rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white p-2">
+          <div className="mb-6 mx-auto w-48 max-w-full rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white p-2">
             <img 
               src={qrImageSrc} 
               alt="主理人微信二维码" 
-              className="w-full h-full object-cover rounded-xl"
+              className="w-full h-auto object-contain rounded-xl"
             />
           </div>
 
