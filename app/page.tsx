@@ -2678,51 +2678,8 @@ export default function Home() {
                   <span className="mt-0.5 text-amber-400 text-sm shrink-0">ℹ</span>
                   <p className="text-sm leading-6 text-amber-800">
                     <strong>PDF 简化分析模式</strong>
-                    ：当前仅提供基础摘要与阅读引导。如需完整结构化分析，建议优先使用 EPUB 文件，或解锁当前 PDF 的完整版分析。
+                    ：当前仅提供基础摘要与阅读引导。为了获得效果更佳的深度结构化分析，建议您优先选择并重新上传 EPUB 格式的文件。
                   </p>
-                </div>
-              )}
-
-              {/* Paywall card */}
-              {isLiteMode && !isLiteUnlocked && (
-                <div className="mb-8 rounded-2xl border border-gray-100 bg-white shadow-card p-6">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-gray-400 mb-3">
-                    解锁完整版分析
-                  </p>
-                  <p className="text-base font-semibold text-gray-900 mb-4">
-                    解锁后可获得以下深度分析内容
-                  </p>
-                  <ul className="space-y-2 mb-5">
-                    {[
-                      "观点地图",
-                      "行动提炼",
-                      "观点校验",
-                      "思想溯源",
-                      "Obsidian 知识包导出",
-                    ].map((feature) => (
-                      <li
-                        key={feature}
-                        className="flex items-center gap-2 text-sm text-gray-700"
-                      >
-                        <span className="text-emerald-500 font-bold">✓</span>
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-2xl font-bold text-gray-900">
-                      ¥9.9
-                      <span className="text-sm font-normal text-gray-400 ml-1">
-                        / 本
-                      </span>
-                    </span>
-                    <button
-                      onClick={() => setIsPaywallModalOpen(true)}
-                      className="rounded-xl bg-gray-950 px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 transition active:scale-[0.98]"
-                    >
-                      立即解锁完整版
-                    </button>
-                  </div>
                 </div>
               )}
 
