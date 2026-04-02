@@ -2,6 +2,72 @@
 
 import { useEffect, useState } from "react";
 
+const floatAnimationStyles = `
+@keyframes libraryFloat {
+  0%, 100% { transform: translateY(0) scale(var(--scale-factor)); }
+  50% { transform: translateY(-12px) scale(var(--scale-factor)); }
+}
+.animate-library-float {
+  animation: libraryFloat 7s ease-in-out infinite;
+}
+`;
+
+const ADVANCED_BOOKS = [
+  { title: "认知觉醒", author: "周岭" },
+  { title: "原则", author: "瑞·达利欧" },
+  { title: "思考，快与慢", author: "丹尼尔·卡尼曼" },
+  { title: "纳瓦尔宝典", author: "埃里克·乔根森" },
+  { title: "心流", author: "米哈里" },
+  { title: "刻意练习", author: "安德斯·艾利克森" },
+  { title: "被讨厌的勇气", author: "岸见一郎" },
+  { title: "非暴力沟通", author: "马歇尔·卢森堡" },
+  { title: "金字塔原理", author: "芭芭拉·明托" },
+  { title: "穷查理宝典", author: "查理·芒格" },
+];
+
+const FLOATING_POSITIONS = [
+  { top: "12%", left: "8%", delay: "0s", scale: 0.95, opacity: 0.5 },
+  { top: "22%", right: "8%", delay: "1.2s", scale: 1.1, opacity: 0.6 },
+  { top: "45%", left: "4%", delay: "2.5s", scale: 1.0, opacity: 0.8 },
+  { top: "35%", right: "6%", delay: "1.5s", scale: 1.2, opacity: 0.5 },
+  { top: "72%", left: "10%", delay: "3.1s", scale: 1.05, opacity: 0.65 },
+  { top: "15%", left: "35%", delay: "1.7s", scale: 0.8, opacity: 0.4 },
+  { top: "65%", right: "12%", delay: "0.8s", scale: 0.85, opacity: 0.55 },
+  { top: "82%", right: "25%", delay: "2.1s", scale: 0.95, opacity: 0.7 },
+  { top: "5%", right: "25%", delay: "0.5s", scale: 1.15, opacity: 0.45 },
+  { top: "55%", left: "25%", delay: "2.8s", scale: 0.9, opacity: 0.5 },
+];
+
+function FloatingLibraryBackground() {
+  return (
+    <>
+      <style>{floatAnimationStyles}</style>
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {ADVANCED_BOOKS.map((book, idx) => {
+          const pos = FLOATING_POSITIONS[idx % FLOATING_POSITIONS.length];
+          return (
+            <div
+              key={idx}
+              className="absolute inline-flex flex-col items-center justify-center rounded-2xl border border-white/30 bg-white/20 px-5 py-3 shadow-[0_8px_32px_0_rgba(255,255,255,0.1)] backdrop-blur-md animate-library-float"
+              style={{
+                top: pos.top,
+                left: pos.left,
+                right: pos.right,
+                opacity: pos.opacity,
+                animationDelay: pos.delay,
+                ["--scale-factor" as any]: pos.scale,
+              }}
+            >
+              <span className="text-[15px] font-bold text-white tracking-wide drop-shadow-md">{book.title}</span>
+              <span className="text-[11px] font-medium text-white/80 mt-1">{book.author}</span>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export function UpgradeReadingModal({
   isOpen,
   onClose,
@@ -37,14 +103,16 @@ export function UpgradeReadingModal({
 
   return (
     <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${
+      className={`fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 backdrop-blur-md transition-opacity duration-500 ${
         isVisible ? "opacity-100" : "opacity-0"
       }`}
       onClick={onClose}
     >
+      <FloatingLibraryBackground />
+
       <div
-        className={`relative mx-4 w-full max-w-md transform overflow-hidden rounded-3xl bg-white/90 shadow-2xl backdrop-blur-xl transition-all duration-300 ${
-          isVisible ? "scale-100 translate-y-0 opacity-100" : "scale-95 translate-y-4 opacity-0"
+        className={`relative z-10 mx-4 w-full max-w-md transform overflow-hidden rounded-3xl bg-white/90 shadow-2xl backdrop-blur-2xl transition-all duration-500 ${
+          isVisible ? "scale-100 translate-y-0 opacity-100" : "scale-95 translate-y-8 opacity-0"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
