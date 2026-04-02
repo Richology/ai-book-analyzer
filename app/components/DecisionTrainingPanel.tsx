@@ -121,7 +121,7 @@ export function DecisionTrainingPanel({
   const [selectedOption, setSelectedOption] = useState<DecisionOptionKey | null>(null);
   const [viewMode, setViewMode] = useState<"scenario" | "feedback" | "done">("scenario");
   
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setCurrentIndex(0);
@@ -129,10 +129,15 @@ export function DecisionTrainingPanel({
     setViewMode("scenario");
   }, [scenarios]);
   
-  // Auto scroll to top when changing views
+  // Auto scroll window to panel top when changing views
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    if (panelRef.current) {
+      // scrollIntoView with a slight top margin is handled by scroll-margin-top if defined in css,
+      // but standard scrollIntoView is highly reliable here.
+      const yOffset = -80; // offset for sticky navbars if any
+      const element = panelRef.current;
+      const y = element.getBoundingClientRect().top + window.scrollY + yOffset;
+      window.scrollTo({ top: y, behavior: "smooth" });
     }
   }, [viewMode, currentIndex]);
 
@@ -165,10 +170,13 @@ export function DecisionTrainingPanel({
   };
 
   return (
-    <section className="mb-10 rounded-[28px] border border-gray-200 bg-white shadow-card overflow-hidden flex flex-col relative w-full h-full max-h-[75vh]">
+    <section 
+      ref={panelRef}
+      className="mb-10 rounded-[28px] border border-gray-200 bg-white shadow-card overflow-hidden relative w-full"
+    >
       
       {/* Universal Compact Header */}
-      <div className="shrink-0 border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">
+      <div className="border-b border-gray-100 bg-white/80 px-5 py-4 backdrop-blur-md sticky top-0 z-10 flex items-center justify-between">
         <button
           onClick={onBackToCards}
           className="rounded-xl bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-all flex items-center gap-1.5"
@@ -192,11 +200,8 @@ export function DecisionTrainingPanel({
         )}
       </div>
 
-      {/* Internal Scroll Viewport */}
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto px-5 py-6 md:px-8 md:py-8 scrollbar-hide"
-      >
+      {/* Internal Viewport (No internal scrolling) */}
+      <div className="px-5 py-6 md:px-8 md:py-8">
         {viewMode === "scenario" && (
           <div className="space-y-8 pb-4">
             
