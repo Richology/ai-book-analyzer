@@ -2936,7 +2936,7 @@ export default function Home() {
         isOpen={isUpgradeModalOpen} 
         onClose={() => setIsUpgradeModalOpen(false)} 
         wechatId="iwbr1988"
-        qrImageSrc="/wechat-qr.png"
+        qrImageSrc="/contact-avatar.png"
       />
 
       {/* ── Payment modal ── */}
