@@ -1830,10 +1830,16 @@ export default function Home() {
       setIsLoadingBookSummary(false);
 
       if (liteMode) {
+        setIsLoadingViewMap(false);
+        setIsLoadingActionExtraction(false);
+        setIsLoadingViewValidation(false);
+        setIsLoadingIdeaSourceTracing(false);
+        
         setMessage("正在生成阅读指南...");
         updateProgress("阅读指南…");
         fetchReadingGuide(title, bkSummary, chaps, false);
         setBgAnalysisStatus({ active: false });
+        // NOTE: We rely on the useEffect hook to catch message === "分析完成" && !isAnalyzing to save history.
         return;
       }
 
