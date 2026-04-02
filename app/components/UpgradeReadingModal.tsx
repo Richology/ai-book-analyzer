@@ -63,40 +63,40 @@ export function UpgradeReadingModal({
           </svg>
         </button>
 
-        <div className="relative p-7 sm:p-9 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-gray-900 to-gray-700 shadow-lg">
-            <span className="text-2xl">🎁</span>
+        <div className="relative max-h-[90vh] overflow-y-auto p-6 sm:p-8 text-center scrollbar-hide">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-gray-900 to-gray-700 shadow-md">
+            <span className="text-xl">🎁</span>
           </div>
           
-          <h3 className="mb-2 text-xl font-bold text-gray-900">
+          <h3 className="mb-2 text-lg font-bold text-gray-900">
             卡在了这个模式里？
           </h3>
           
-          <div className="mb-6 space-y-3 text-[14px] leading-relaxed text-gray-600 text-left bg-gray-50/80 rounded-2xl p-5 border border-gray-100/50">
+          <div className="mb-5 space-y-2 text-[13px] leading-relaxed text-gray-600 text-left bg-gray-50/80 rounded-2xl p-4 border border-gray-100/50">
             <p>
-              测试仅仅是发现问题的第一步。这背后往往隐藏着我们在真实生活中<strong className="text-gray-900 font-semibold">反复遇到的卡点</strong>。
+              测试仅仅是第一步。这背后往往隐藏着真实生活中<strong className="text-gray-900 font-semibold">反复遇到的卡点</strong>。
             </p>
             <p>
-              我是主理人安瑟。基于你的反馈模式，我整理了一份不对外公开的<strong className="text-gray-900 font-semibold">「破局专属进阶书单」</strong>。
+              我是主理人安瑟。基于你的反馈模式，我为你准备了一份<strong className="text-gray-900 font-semibold">「破局专属进阶书单」</strong>。
             </p>
             <p>
-              如果你想真正改变这个现状，不如加我个微信。我把书单发给你，顺便聊聊你的困局。
+              如果你想改变现状，不如加个微信聊聊，我把书单发你。
             </p>
           </div>
 
-          <div className="mb-6 mx-auto w-48 max-w-full rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white p-2">
+          <div className="mb-4 mx-auto w-full max-w-[200px] h-48 sm:h-52 rounded-2xl overflow-hidden shadow-sm border border-gray-100 bg-white p-2 flex items-center justify-center">
             <img 
               src={qrImageSrc} 
               alt="主理人微信二维码" 
-              className="w-full h-auto object-contain rounded-xl"
+              className="w-full h-full object-contain"
             />
           </div>
 
-          <p className="text-sm text-gray-500 mb-3">扫描上方二维码，或复制微信添加</p>
+          <p className="text-xs text-gray-400 mb-3">扫描上方二维码，或复制微信添加</p>
 
           <button
             onClick={handleCopy}
-            className={`mx-auto flex h-11 w-full max-w-[200px] items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-sm font-medium transition-all ${
+            className={`mx-auto flex h-10 w-full max-w-[200px] items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-[13px] font-medium transition-all ${
               copySuccess 
                 ? "border-emerald-200 bg-emerald-50 text-emerald-600" 
                 : "text-gray-700 hover:bg-gray-50 hover:shadow-sm active:scale-95"
@@ -104,12 +104,12 @@ export function UpgradeReadingModal({
           >
             {copySuccess ? (
               <>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
                 已复制微信号
               </>
             ) : (
               <>
-                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                 复制微信号 {wechatId}
               </>
             )}
