@@ -23,6 +23,7 @@ import { BookComparison } from "./components/landing/BookComparison";
 import { Testimonials } from "./components/landing/Testimonials";
 import { NeedAHand } from "./components/landing/NeedAHand";
 import { FAQ } from "./components/landing/FAQ";
+import { FloatingBooks } from "./components/landing/FloatingBooks";
 import { ValueProp } from "./components/landing/ValueProp";
 import {
   buildDecisionBookId,
@@ -110,6 +111,29 @@ const HAS_UPLOADED_BOOK_KEY = "bookleap_has_uploaded_book";
 const LAST_ANALYZED_BOOK_TITLE_KEY = "bookleap_last_analyzed_book_title";
 const STARTER_MODE_SEEN_KEY = "bookleap_has_seen_starter_mode";
 const STARTER_SELECTED_BOOK_KEY = "bookleap_selected_starter_book";
+const STARTER_EXPERIENCED_KEY = "bookleap_experienced_starter_books";
+
+/* ── Track which starter books have been experienced ── */
+function getExperiencedStarterBooks(): string[] {
+  try {
+    const raw = localStorage.getItem(STARTER_EXPERIENCED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function markStarterBookExperienced(bookId: string) {
+  try {
+    const list = getExperiencedStarterBooks();
+    if (!list.includes(bookId)) {
+      list.push(bookId);
+      localStorage.setItem(STARTER_EXPERIENCED_KEY, JSON.stringify(list));
+    }
+  } catch {
+    // ignore
+  }
+}
 const STARTER_ENTRY_TOAST_SESSION_KEY = "bookleap_starter_entry_toast_seen";
 const RETURNING_USER_TOAST_SESSION_KEY = "bookleap_returning_user_toast_seen";
 const HISTORY_REORGANIZED_KEY = "bookleap_history_reorganized_shown";
@@ -732,6 +756,7 @@ export default function Home() {
   const bgAnalysisTitleRef = useRef<string>("");
   const [bgAnalysisStatus, setBgAnalysisStatus] = useState<BgAnalysisStatus>({ active: false });
   const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [message, setMessage] = useState("");
   const [bookTitle, setBookTitle] = useState("");
@@ -777,6 +802,7 @@ export default function Home() {
   const [seenCardKeys, setSeenCardKeys] = useState<string[]>([]);
   const [isStarterModeVisible, setIsStarterModeVisible] = useState(false);
   const [showStarterBooks, setShowStarterBooks] = useState(true);
+  const [experiencedStarterIds, setExperiencedStarterIds] = useState<string[]>([]);
   const [selectedStarterBookId, setSelectedStarterBookIdState] = useState("");
   const [isStarterLoading, setIsStarterLoading] = useState(false);
   const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0].text);
@@ -822,6 +848,11 @@ export default function Home() {
     setRecentHistory(history);
     setOnboardingProgressState(onboardingStep);
     setSelectedStarterBookIdState(starterBookId);
+    setExperiencedStarterIds(getExperiencedStarterBooks());
+    // Hide floating books if all starter books already experienced
+    if (getExperiencedStarterBooks().length >= starterBooks.length) {
+      setShowStarterBooks(false);
+    }
     setHasShownStarterEntryToast(starterEntrySeenThisSession);
     setHasShownReturningUserToast(returningUserToastSeenThisSession);
     setShowFabRedDot(
@@ -1171,19 +1202,37 @@ export default function Home() {
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
     setIsDragging(true);
   };
 
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(false);
+    dragCounter.current--;
+    if (dragCounter.current === 0) {
+      setIsDragging(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCounter.current = 0;
     setIsDragging(false);
+
+    // Check if this is a starter book drag
+    const starterBookId = e.dataTransfer.getData("starter-book-id");
+    if (starterBookId) {
+      void handleSelectStarterBook(starterBookId);
+      return;
+    }
+
     processFile(e.dataTransfer.files?.[0]);
   };
 
@@ -1560,6 +1609,28 @@ export default function Home() {
     setViewMode("immersive");
     setImmersiveIndex(0);
     setMessage("分析完成");
+
+    // Explicitly save starter book to history (don't rely on useEffect timing)
+    const record: HistoryRecord = {
+      id: `${starterBook.title}-epub`,
+      title: starterBook.title,
+      fileType: "epub",
+      mode: "full",
+      createdAt: new Date().toISOString(),
+      bookSummary: starterBook.analysis.summary,
+      readingGuide: starterBook.analysis.readingGuide,
+      viewMap: starterBook.analysis.viewMap,
+      actionExtraction: starterBook.analysis.actionExtraction,
+      viewValidation: starterBook.analysis.viewValidation,
+      ideaSourceTracing: starterBook.analysis.ideaSourceTracing,
+      bookRecommendation: "",
+      starterBookId: starterBook.id,
+      author: starterBook.author,
+    };
+    const prev = loadHistory().filter((r) => r.id !== record.id);
+    const next = [record, ...prev].slice(0, HISTORY_MAX);
+    saveHistory(next);
+    setRecentHistory(next);
   }, [resetAllState]);
 
   const handleDismissStarterMode = () => {
@@ -1589,9 +1660,8 @@ export default function Home() {
 
   const handleShowStarterModeFromToast = useCallback(() => {
     setShowStarterBooks(true);
-    // 等 DOM 渲染后再滚动
-    setTimeout(() => scrollToStarterBooksSection(), 100);
-  }, [scrollToStarterBooksSection]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     if (!isStarterModeVisible || !shouldScrollToStarterSectionRef.current) return;
@@ -1665,7 +1735,17 @@ export default function Home() {
 
       applyStarterBook(starterBook);
       setIsStarterModeVisible(false);
-      setShowStarterBooks(false);
+
+      // Mark this specific book as experienced
+      markStarterBookExperienced(starterBookId);
+      setExperiencedStarterIds((prev) => {
+        const next = prev.includes(starterBookId) ? prev : [...prev, starterBookId];
+        // Hide FloatingBooks only when all 3 are experienced
+        if (next.length >= starterBooks.length) {
+          setShowStarterBooks(false);
+        }
+        return next;
+      });
 
       // 解析完成后自动滚动到卡片区域
       setTimeout(() => {
@@ -2215,11 +2295,20 @@ export default function Home() {
       <TopNav />
       <main className="min-h-screen bg-[#f7f7f8]">
         {/* ── Hero gradient background ── */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-sky-50 to-violet-50 px-5 pb-10 pt-20 md:px-8 md:pt-24">
+        <div className={`relative overflow-hidden bg-gradient-to-br from-amber-50 via-sky-50 to-violet-50 px-5 pt-20 md:px-8 md:pt-24 ${showStarterBooks && !isStarterLoading ? "pb-52 md:pb-56" : "pb-10"}`}>
           {/* Decorative blobs */}
           <div className="pointer-events-none absolute -top-24 -left-24 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
           <div className="pointer-events-none absolute -top-12 right-0 h-64 w-64 rounded-full bg-sky-200/30 blur-3xl" />
           <div className="pointer-events-none absolute bottom-0 left-1/3 h-56 w-56 rounded-full bg-violet-200/20 blur-3xl" />
+
+          {/* Floating book names + draggable starter books */}
+          {showStarterBooks && !isStarterLoading && (
+            <FloatingBooks
+              starterBooks={starterBooks.map((b) => ({ id: b.id, title: b.title, coverImage: b.coverImage }))}
+              experiencedIds={experiencedStarterIds}
+              onStarterBookDrop={(bookId) => void handleSelectStarterBook(bookId)}
+            />
+          )}
 
         <div className="mx-auto max-w-4xl">
 
@@ -2236,7 +2325,7 @@ export default function Home() {
               </div>
             </header>
           ) : (
-          <header className="mb-12 text-center">
+          <header className="relative z-10 mb-12 text-center">
             <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white/70 backdrop-blur-sm border border-white/60 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
               <span className="text-gray-400">✦</span> AI 驱动的结构化书籍分析平台
             </div>
@@ -2272,7 +2361,7 @@ export default function Home() {
             </button>
           </section>
           ) : (
-          <section className="bg-white rounded-2xl border border-gray-100 shadow-card p-7 mb-10">
+          <section className="relative z-10 bg-white/80 backdrop-blur-xl rounded-2xl border border-white/60 shadow-card p-7 mb-10">
             <input
               ref={fileInputRef}
               type="file"
@@ -2281,10 +2370,25 @@ export default function Home() {
               className="hidden"
             />
 
+            {/* Starter book loading overlay */}
+            {isStarterLoading && (
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center rounded-2xl bg-white/95 backdrop-blur-sm">
+                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 shadow-sm">
+                  <span className="relative flex h-3 w-3">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-70" />
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-gray-700" />
+                  </span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-950">正在为你准备这本书</h3>
+                <p className="mt-2 text-sm text-gray-500 transition-opacity duration-300">{starterLoadingStep}</p>
+              </div>
+            )}
+
             {/* Drop zone */}
             <div
               onClick={() => fileInputRef.current?.click()}
               onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className={`mb-5 rounded-xl border-2 border-dashed px-6 py-9 text-center cursor-pointer transition-all duration-200 select-none ${
@@ -2298,7 +2402,7 @@ export default function Home() {
               {isDragging ? (
                 <>
                   <p className="text-xl mb-2 opacity-60">📂</p>
-                  <p className="text-sm font-medium text-gray-600">松开即可上传</p>
+                  <p className="text-sm font-medium text-gray-600">松开即可开始分析</p>
                 </>
               ) : selectedFile ? (
                 <>
@@ -2341,55 +2445,6 @@ export default function Home() {
               {isLoading ? "解析中…" : "开始分析"}
             </button>
           </section>
-          )}
-
-          {/* ── Starter books (below upload, for users without a book at hand) ── */}
-          {showStarterBooks && !isAnalyzing && !selectedFile && recentHistory.length < 5 && !isStarterModeVisible && (
-            <section id="starter-books-section" className="mb-10">
-              <div className="mb-4 text-center">
-                <p className="text-sm text-gray-400">手边没有电子书？先用这 3 本好书体验一下</p>
-              </div>
-
-              {isStarterLoading ? (
-                <div className="rounded-2xl border border-gray-100 bg-white shadow-card px-6 py-10 text-center">
-                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 shadow-sm">
-                    <span className="relative flex h-3 w-3">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-70" />
-                      <span className="relative inline-flex h-3 w-3 rounded-full bg-gray-700" />
-                    </span>
-                  </div>
-                  <h3 className="text-lg font-semibold text-gray-950">正在为你准备这本书</h3>
-                  <p className="mt-2 text-sm leading-7 text-gray-500 transition-opacity duration-300">{starterLoadingStep}</p>
-                </div>
-              ) : (
-                <div className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:px-0 md:pb-0">
-                  {starterBooks.map((book) => (
-                    <article
-                      key={book.id}
-                      onClick={() => void handleSelectStarterBook(book.id)}
-                      className="group min-w-[60vw] max-w-[60vw] shrink-0 snap-center cursor-pointer overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover md:min-w-0 md:max-w-none"
-                    >
-                      <div className="relative aspect-[4/3] overflow-hidden bg-gray-50">
-                        <Image
-                          src={book.coverImage}
-                          alt={book.title}
-                          fill
-                          sizes="(max-width: 768px) 60vw, 33vw"
-                          className="object-contain p-3 transition-transform duration-300 group-hover:scale-[1.02]"
-                        />
-                      </div>
-                      <div className="px-4 py-3">
-                        <h3 className="text-sm font-semibold text-gray-950">{book.title}</h3>
-                        <p className="mt-0.5 text-xs text-gray-400">{book.author}</p>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-              <p className="mt-2 text-center text-xs text-gray-400 md:hidden">
-                左右滑动选择书籍
-              </p>
-            </section>
           )}
 
         </div>{/* end max-w-4xl inside hero */}
@@ -2936,7 +2991,7 @@ export default function Home() {
         <FAQ />
 
         {/* ── Footer ── */}
-        <footer className="py-8 flex flex-col items-center gap-3">
+        <footer className="py-8 pb-20 flex flex-col items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
