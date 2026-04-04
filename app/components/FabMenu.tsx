@@ -159,8 +159,8 @@ export const FabMenu = forwardRef<FabMenuHandle, {
                   className="flex w-full items-center justify-between rounded-xl px-3 py-3 transition-colors hover:bg-gray-50 active:bg-gray-100"
                 >
                   <span className="flex items-center gap-2.5 text-[13px] text-gray-800">
-                    <span className="text-base">🎁</span>
-                    新人礼物(首次体验推荐)
+                    <span className="text-base">📚</span>
+                    体验推荐好书
                   </span>
                   <svg className="h-4 w-4 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 18l6-6-6-6" />

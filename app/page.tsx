@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -769,6 +770,7 @@ export default function Home() {
   const [fallbackUnlocks, setFallbackUnlocks] = useState({ training: false, export: false });
   const [seenCardKeys, setSeenCardKeys] = useState<string[]>([]);
   const [isStarterModeVisible, setIsStarterModeVisible] = useState(false);
+  const [showStarterBooks, setShowStarterBooks] = useState(true);
   const [selectedStarterBookId, setSelectedStarterBookIdState] = useState("");
   const [isStarterLoading, setIsStarterLoading] = useState(false);
   const [starterLoadingStep, setStarterLoadingStep] = useState<string>(STARTER_LOADING_STEPS[0].text);
@@ -819,9 +821,8 @@ export default function Home() {
     setShowFabRedDot(
       hasHistoryReorganizedBeenShown() && !hasFabHistoryBeenSeen() && history.length >= 3
     );
-    setIsStarterModeVisible(
-      history.length === 0 && onboardingStep === "none" && !starterSeen && !starterBookId
-    );
+    // 不再自动进入 starter mode，新用户默认看到上传区
+    setIsStarterModeVisible(false);
   }, []);
 
   useEffect(() => {
@@ -1581,9 +1582,10 @@ export default function Home() {
   }, []);
 
   const handleShowStarterModeFromToast = useCallback(() => {
-    shouldScrollToStarterSectionRef.current = true;
-    handleShowStarterMode();
-  }, [handleShowStarterMode]);
+    setShowStarterBooks(true);
+    // 等 DOM 渲染后再滚动
+    setTimeout(() => scrollToStarterBooksSection(), 100);
+  }, [scrollToStarterBooksSection]);
 
   useEffect(() => {
     if (!isStarterModeVisible || !shouldScrollToStarterSectionRef.current) return;
@@ -1596,47 +1598,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [isStarterModeVisible, scrollToStarterBooksSection]);
 
-  useEffect(() => {
-    if (isStarterModeVisible || hasShownStarterEntryToast || isStarterLoading || hasBlockingToast) return;
-    if (recentHistory.length === 0) return;
-    // 用户已选过 starter book → 不再提示
-    if (selectedStarterBookId) return;
-    // 用户已经历过 starter 流程（localStorage 持久标记）
-    if (hasSeenStarterMode()) return;
-
-    const timer = window.setTimeout(() => {
-      // 延迟回调中重新检查状态，防止调度期间用户已操作
-      if (hasSeenStarterMode() || getSelectedStarterBookId()) return;
-
-      enqueueGuidanceToast({
-        id: "starter-mode-entry",
-        message: "🎁 新功能：我们送你3本书，试试吗？",
-        actionText: "去看看",
-        onAction: handleShowStarterModeFromToast,
-        priority: TOAST_PRIORITY.ENTRY,
-        isPersistent: true,
-        durationMs: 0,
-        showCloseButton: true,
-        dismissible: true,
-        eligibilityCheck: () =>
-          !hasSeenStarterMode() && !getSelectedStarterBookId(),
-      });
-      markStarterEntryToastSeenThisSession();
-      setHasShownStarterEntryToast(true);
-    }, 2000);
-
-    return () => window.clearTimeout(timer);
-  }, [
-    enqueueGuidanceToast,
-    handleShowStarterMode,
-    handleShowStarterModeFromToast,
-    hasBlockingToast,
-    hasShownStarterEntryToast,
-    isStarterLoading,
-    isStarterModeVisible,
-    recentHistory.length,
-    selectedStarterBookId,
-  ]);
+  // starter-mode-entry toast 已移除：3 本预置书现在直接展示在上传区下方
 
   useEffect(() => {
     if (isStarterModeVisible || hasShownReturningUserToast || hasBlockingToast) return;
@@ -1697,6 +1659,7 @@ export default function Home() {
 
       applyStarterBook(starterBook);
       setIsStarterModeVisible(false);
+      setShowStarterBooks(false);
 
       // 解析完成后自动滚动到卡片区域
       setTimeout(() => {
@@ -2276,18 +2239,7 @@ export default function Home() {
           )}
 
           {/* ── Upload section ── */}
-          {isStarterModeVisible ? (
-            <StarterModePanel
-              books={starterBooks}
-              isLoading={isStarterLoading}
-              loadingStep={starterLoadingStep}
-              selectedBookId={selectedStarterBookId}
-              onSelectBook={(starterBookId) => {
-                void handleSelectStarterBook(starterBookId);
-              }}
-              onChooseUpload={handleDismissStarterMode}
-            />
-          ) : recentHistory.length >= 5 && !selectedFile && !isAnalyzing ? (
+          {recentHistory.length >= 5 && !selectedFile && !isAnalyzing ? (
           /* ── Compact upload for experienced users ── */
           <section className="mb-6">
             <input
@@ -2314,15 +2266,6 @@ export default function Home() {
               onChange={handleFileChange}
               className="hidden"
             />
-
-            <div className="mb-4 flex items-center justify-end">
-              <button
-                onClick={handleShowStarterMode}
-                className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
-              >
-                返回新人推荐
-              </button>
-            </div>
 
             {/* Drop zone */}
             <div
@@ -2357,9 +2300,9 @@ export default function Home() {
                 <>
                   <p className="text-xl mb-2 opacity-50">📥</p>
                   <p className="text-sm font-medium text-gray-600 mb-1">
-                    点击选择，或将文件拖入此处
+                    那本你买了但一直没读完的书，传上来
                   </p>
-                  <p className="text-xs text-gray-400">支持 EPUB / PDF</p>
+                  <p className="text-xs text-gray-400">30 秒后你就能用起来 · 支持 EPUB / PDF</p>
                 </>
               )}
             </div>
@@ -2368,11 +2311,11 @@ export default function Home() {
             <div className="mb-5 space-y-1.5">
               <p className="text-xs text-gray-400 flex items-start gap-1.5">
                 <span className="shrink-0 mt-px">✦</span>
-                推荐使用 EPUB 文件，可获得完整六项结构化分析
+                推荐 EPUB 格式，解析更完整，可获得全部六项结构化分析
               </p>
               <p className="text-xs text-gray-400 flex items-start gap-1.5">
                 <span className="shrink-0 mt-px">✦</span>
-                较大的 PDF 可能上传失败，建议优先使用 EPUB 或压缩后的 PDF
+                PDF 也支持，但较大文件可能影响解析效果
               </p>
             </div>
 
@@ -2384,6 +2327,55 @@ export default function Home() {
               {isLoading ? "解析中…" : "开始分析"}
             </button>
           </section>
+          )}
+
+          {/* ── Starter books (below upload, for users without a book at hand) ── */}
+          {showStarterBooks && !isAnalyzing && !selectedFile && recentHistory.length < 5 && !isStarterModeVisible && (
+            <section id="starter-books-section" className="mb-10">
+              <div className="mb-4 text-center">
+                <p className="text-sm text-gray-400">手边没有电子书？先用这 3 本好书体验一下</p>
+              </div>
+
+              {isStarterLoading ? (
+                <div className="rounded-2xl border border-gray-100 bg-white shadow-card px-6 py-10 text-center">
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-50 shadow-sm">
+                    <span className="relative flex h-3 w-3">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-70" />
+                      <span className="relative inline-flex h-3 w-3 rounded-full bg-gray-700" />
+                    </span>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-950">正在为你准备这本书</h3>
+                  <p className="mt-2 text-sm leading-7 text-gray-500 transition-opacity duration-300">{starterLoadingStep}</p>
+                </div>
+              ) : (
+                <div className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-4 md:overflow-visible md:px-0 md:pb-0">
+                  {starterBooks.map((book) => (
+                    <article
+                      key={book.id}
+                      onClick={() => void handleSelectStarterBook(book.id)}
+                      className="group min-w-[60vw] max-w-[60vw] shrink-0 snap-center cursor-pointer overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover md:min-w-0 md:max-w-none"
+                    >
+                      <div className="relative aspect-[4/3] overflow-hidden bg-gray-50">
+                        <Image
+                          src={book.coverImage}
+                          alt={book.title}
+                          fill
+                          sizes="(max-width: 768px) 60vw, 33vw"
+                          className="object-contain p-3 transition-transform duration-300 group-hover:scale-[1.02]"
+                        />
+                      </div>
+                      <div className="px-4 py-3">
+                        <h3 className="text-sm font-semibold text-gray-950">{book.title}</h3>
+                        <p className="mt-0.5 text-xs text-gray-400">{book.author}</p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-center text-xs text-gray-400 md:hidden">
+                左右滑动选择书籍
+              </p>
+            </section>
           )}
 
           {/* ── Status banner + progress tracker (independent of upload panel) ── */}
