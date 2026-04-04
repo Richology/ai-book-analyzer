@@ -2561,8 +2561,8 @@ export default function Home() {
                         if (!isPending) {
                           restoreFromHistory(record);
                           setTimeout(() => {
-                            cardSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                          }, 80);
+                            immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                          }, 100);
                         }
                       }}
                       className={`group flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-100 shadow-card px-4 py-3 transition-all duration-200 ${
@@ -2626,7 +2626,7 @@ export default function Home() {
           {bookTitle && (
             <>
               {/* Title bar */}
-              <div ref={immersiveContainerRef} className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+              <div ref={immersiveContainerRef} className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4" style={{ scrollMarginTop: "70px" }}>
                 <h2 className="max-w-full text-left text-lg font-semibold leading-snug text-gray-900 md:truncate">
                   {bookTitle}
                 </h2>
@@ -2687,7 +2687,7 @@ export default function Home() {
 
               {/* View mode toggle */}
               {immersiveCardList.length > 0 && (
-                <div ref={cardSectionRef} className="mb-8 flex items-center justify-between gap-4">
+                <div ref={cardSectionRef} className="mb-8 flex items-center justify-between gap-4" style={{ scrollMarginTop: "70px" }}>
                   <div className="flex items-center gap-0.5 rounded-xl border border-gray-200 bg-white p-1 shadow-sm">
                     <button
                       onClick={() => setViewMode("card")}
@@ -3197,6 +3197,9 @@ export default function Home() {
             restoreFromHistory(record);
             setHistoryToast(`已切换到《${record.title}》`);
             setTimeout(() => setHistoryToast(""), 2500);
+            setTimeout(() => {
+              immersiveContainerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 100);
           }
         }}
         onDeleteHistory={deleteHistoryRecord}
