@@ -2313,18 +2313,6 @@ export default function Home() {
         <div className="mx-auto max-w-4xl">
 
           {/* ── Header ── */}
-          {recentHistory.length >= 5 && !isStarterModeVisible ? (
-            <header className="mb-6 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-lg font-bold tracking-tight text-gray-950">
-                  书跃 · BookLeap
-                </h1>
-                <span className="text-[10px] text-gray-400 font-medium tracking-wide">
-                  ✦ 结构化书籍分析
-                </span>
-              </div>
-            </header>
-          ) : (
           <header className="relative z-10 mb-12 text-center">
             <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white/70 backdrop-blur-sm border border-white/60 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
               <span className="text-gray-400">✦</span> AI 驱动的结构化书籍分析平台
@@ -2339,28 +2327,8 @@ export default function Home() {
               上传电子书，获取结构化的知识卡片，提升学习的效率和质量
             </p>
           </header>
-          )}
 
           {/* ── Upload section ── */}
-          {recentHistory.length >= 5 && !selectedFile && !isAnalyzing ? (
-          /* ── Compact upload for experienced users ── */
-          <section className="mb-6">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.epub,application/pdf"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:shadow active:scale-[0.98]"
-            >
-              <span className="text-base leading-none">+</span>
-              上传新书
-            </button>
-          </section>
-          ) : (
           <section className="relative z-10 bg-white/80 backdrop-blur-xl rounded-2xl border border-white/60 shadow-card p-7 mb-10">
             <input
               ref={fileInputRef}
@@ -2445,7 +2413,6 @@ export default function Home() {
               {isLoading ? "解析中…" : "开始分析"}
             </button>
           </section>
-          )}
 
         </div>{/* end max-w-4xl inside hero */}
         </div>{/* end hero gradient */}
