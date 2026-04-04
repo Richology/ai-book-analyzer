@@ -18,6 +18,12 @@ import { UpgradeReadingModal } from "./components/UpgradeReadingModal";
 import { StarterModePanel } from "./components/StarterModePanel";
 import { Toast } from "./components/Toast";
 import { FabMenu, type FabMenuHandle } from "./components/FabMenu";
+import { TopNav } from "./components/landing/TopNav";
+import { BookComparison } from "./components/landing/BookComparison";
+import { Testimonials } from "./components/landing/Testimonials";
+import { NeedAHand } from "./components/landing/NeedAHand";
+import { FAQ } from "./components/landing/FAQ";
+import { ValueProp } from "./components/landing/ValueProp";
 import {
   buildDecisionBookId,
   getDecisionCacheKey,
@@ -2206,7 +2212,15 @@ export default function Home() {
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <>
-      <main className="min-h-screen bg-[#f7f7f8] px-5 py-12 md:px-8">
+      <TopNav />
+      <main className="min-h-screen bg-[#f7f7f8]">
+        {/* ── Hero gradient background ── */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-sky-50 to-violet-50 px-5 pb-10 pt-20 md:px-8 md:pt-24">
+          {/* Decorative blobs */}
+          <div className="pointer-events-none absolute -top-24 -left-24 h-72 w-72 rounded-full bg-amber-200/30 blur-3xl" />
+          <div className="pointer-events-none absolute -top-12 right-0 h-64 w-64 rounded-full bg-sky-200/30 blur-3xl" />
+          <div className="pointer-events-none absolute bottom-0 left-1/3 h-56 w-56 rounded-full bg-violet-200/20 blur-3xl" />
+
         <div className="mx-auto max-w-4xl">
 
           {/* ── Header ── */}
@@ -2223,7 +2237,7 @@ export default function Home() {
             </header>
           ) : (
           <header className="mb-12 text-center">
-            <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white border border-gray-200 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
+            <div className="inline-flex items-center gap-1.5 mb-5 px-3 py-1 rounded-full bg-white/70 backdrop-blur-sm border border-white/60 text-[11px] text-gray-500 font-medium tracking-wide shadow-sm">
               <span className="text-gray-400">✦</span> AI 驱动的结构化书籍分析平台
             </div>
             <h1 className="text-[2.25rem] font-bold tracking-tight text-gray-950 mb-3 leading-tight">
@@ -2377,6 +2391,13 @@ export default function Home() {
               </p>
             </section>
           )}
+
+        </div>{/* end max-w-4xl inside hero */}
+        </div>{/* end hero gradient */}
+
+        {/* ── Content area (light gray bg) ── */}
+        <div className="px-5 py-10 md:px-8">
+        <div className="mx-auto max-w-4xl">
 
           {/* ── Status banner + progress tracker (independent of upload panel) ── */}
           {message && !(bgAnalysisStatus.active && bgAnalysisTitleRef.current !== bookTitle) && (() => {
@@ -2904,26 +2925,35 @@ export default function Home() {
             </>
           )}
 
-          {/* Footer */}
-          <footer className="mt-20 mb-4 flex flex-col items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
-              alt="Richology"
-              width={256}
-              height={28}
-              className="h-7 w-auto object-contain"
-            />
-            <a
-              href="https://richology.cn"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[12px] text-gray-800 hover:text-gray-950 transition-colors select-none"
-            >
-              由 安瑟A11BERICH 构建 · 了解作者 →
-            </a>
-          </footer>
-        </div>
+          {/* Footer 已移到页面最底部 */}
+        </div>{/* end max-w-4xl content */}
+        </div>{/* end content area */}
+
+        {/* ── Landing page sections (always visible) ── */}
+        <BookComparison />
+        <Testimonials />
+        <ValueProp />
+        <FAQ />
+
+        {/* ── Footer ── */}
+        <footer className="py-8 flex flex-col items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/Richology%E5%95%86%E6%A0%87%E9%BB%91%E4%BD%93.png"
+            alt="Richology"
+            width={256}
+            height={28}
+            className="h-7 w-auto object-contain"
+          />
+          <a
+            href="https://richology.cn"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[12px] text-gray-800 hover:text-gray-950 transition-colors select-none"
+          >
+            由 安瑟A11BERICH 构建 · 了解作者 →
+          </a>
+        </footer>
       </main>
       
       <UpgradeReadingModal 
@@ -3149,6 +3179,7 @@ export default function Home() {
         onOpenTraining={() => void handleOpenDecisionTraining()}
         onOpenExport={() => { setExportStatus("idle"); setIsExportModalOpen(true); }}
       />
+      <NeedAHand />
     </>
   );
 }
