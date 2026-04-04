@@ -152,8 +152,8 @@ export function FloatingBooks({ starterBooks, experiencedIds, onStarterBookDrop 
         ))}
       </div>
 
-      {/* Drag hint — only show when no book has been experienced yet */}
-      {experiencedIds.length === 0 && (
+      {/* Drag hint — only show when there are gift books and none experienced yet */}
+      {starterBooks.length > 0 && experiencedIds.length === 0 && (
       <div className="pointer-events-none absolute bottom-36 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 md:bottom-44">
         {/* Bouncing arrow */}
         <svg

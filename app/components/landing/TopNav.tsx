@@ -36,23 +36,31 @@ export function TopNav() {
           className="h-3.5 w-auto object-contain opacity-70 transition-opacity hover:opacity-100"
         />
 
-        {/* Nav links */}
-        <div className="hidden items-center gap-6 md:flex">
-          {NAV_ITEMS.map((item) => (
-            <a
-              key={item.anchor}
-              href={item.anchor}
-              className="text-[13px] font-medium text-gray-500 transition-colors hover:text-gray-900"
-              onClick={(e) => {
-                e.preventDefault();
-                document
-                  .querySelector(item.anchor)
-                  ?.scrollIntoView({ behavior: "smooth" });
-              }}
-            >
-              {item.label}
-            </a>
-          ))}
+        {/* Nav links + CTA */}
+        <div className="flex items-center gap-6">
+          <div className="hidden items-center gap-6 md:flex">
+            {NAV_ITEMS.map((item) => (
+              <a
+                key={item.anchor}
+                href={item.anchor}
+                className="text-[13px] font-medium text-gray-500 transition-colors hover:text-gray-900"
+                onClick={(e) => {
+                  e.preventDefault();
+                  document
+                    .querySelector(item.anchor)
+                    ?.scrollIntoView({ behavior: "smooth" });
+                }}
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+          <a
+            href="/workspace"
+            className="rounded-lg bg-gray-900 px-4 py-1.5 text-[13px] font-medium text-white transition-all hover:bg-gray-800 active:scale-[0.97]"
+          >
+            开始使用
+          </a>
         </div>
       </div>
     </nav>
